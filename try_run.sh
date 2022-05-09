@@ -1,4 +1,4 @@
-python run_speech_recognition_ctc.py \
+CUDA_VISIBLE_DEVICES=1 python run_speech_recognition_ctc.py \
 	--dataset_name="mozilla-foundation/common_voice_7_0" \
 	--model_name_or_path="facebook/wav2vec2-xls-r-300m" \
 	--dataset_config_name="sv-SE" \
