@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional, Union
 transformers.logging.set_verbosity(40)
 
 # load dataset
-data_files = ["../../../notebooks/Stortinget_TUL_train.csv"]
+data_files = ["Stortinget_TUL_train.csv"]
 stortinget_dataset = load_dataset("csv", data_files=data_files)
 
 # split dataset
