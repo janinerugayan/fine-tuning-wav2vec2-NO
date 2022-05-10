@@ -20,6 +20,55 @@ from typing import Any, Dict, List, Optional, Union
 # verbosity set to print errors only, by default it is set to 30 = error and warnings
 transformers.logging.set_verbosity(40)
 
+# dataset preparation
+# Stortinget
+dataset_Stortinget = "../../datasets/NordTrans_TUL/Stortinget"
+wavfile_data = []
+textfile_data = []
+for (root, dirs, files) in os.walk(dataset_Stortinget, topdown=True):
+    for fn in files:
+        if fn.endswith(".wav"):
+            wav_id = os.path.splitext(fn)[0]
+            path = os.path.join(root, fn)
+            wavfile_data.append((wav_id, fn, path))
+        elif fn.endswith(".txt-utf8"):
+            text_id = os.path.splitext(fn)[0]
+            with open(os.path.join(root, fn)) as text_file:
+                text = text_file.read()
+            textfile_data.append((text_id, text))
+df_wav = pd.DataFrame(wavfile_data, columns=["segment_id", "wav_file", "path"])
+df_wav = df_wav.set_index("segment_id")
+df_text = pd.DataFrame(textfile_data, columns=["segment_id", "text"])
+df_text = df_text.set_index("segment_id")
+df_Stortinget = df_wav.merge(df_text, left_index=True, right_index=True)
+df_Stortinget.to_csv("Stortinget_TUL_train.csv")
+
+# NRK
+dataset_NRK = "../../datasets/NordTrans_TUL/NRK"
+wavfile_data = []
+textfile_data = []
+for (root, dirs, files) in os.walk(dataset_NRK, topdown=True):
+    for fn in files:
+        if fn.endswith(".wav"):
+            wav_id = os.path.splitext(fn)[0]
+            path = os.path.join(root, fn)
+            wavfile_data.append((wav_id, fn, path))
+        elif fn.endswith(".txt-utf8"):
+            text_id = os.path.splitext(fn)[0]
+            with open(os.path.join(root, fn)) as text_file:
+                text = text_file.read()
+            textfile_data.append((text_id, text))
+df_wav = pd.DataFrame(wavfile_data, columns=["segment_id", "wav_file", "path"])
+df_wav = df_wav.set_index("segment_id")
+df_text = pd.DataFrame(textfile_data, columns=["segment_id", "text"])
+df_text = df_text.set_index("segment_id")
+df_NRK = df_wav.merge(df_text, left_index=True, right_index=True)
+df_NRK.to_csv("NRK_TUL_train.csv")
+df_NRK
+
+
+
+
 # load dataset
 data_files = ["Stortinget_TUL_train.csv"]
 stortinget_dataset = load_dataset("csv", data_files=data_files)
@@ -147,7 +196,7 @@ model.freeze_feature_encoder()
 
 # training arguments
 training_args = TrainingArguments(
-  output_dir="../fine-tuning_wav2vec2",
+  output_dir="../../fine-tuning_wav2vec2",
   group_by_length=True,
   per_device_train_batch_size=32,
   evaluation_strategy="steps",
