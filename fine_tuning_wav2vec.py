@@ -20,7 +20,14 @@ from typing import Any, Dict, List, Optional, Union
 # verbosity set to print errors only, by default it is set to 30 = error and warnings
 transformers.logging.set_verbosity(40)
 
-# dataset preparation
+
+
+
+
+# ---------------------------------------------------
+# DATASET PREPARATION
+# ---------------------------------------------------
+
 # Stortinget
 dataset_Stortinget = "../../datasets/NordTrans_TUL/Stortinget"
 wavfile_data = []
@@ -64,12 +71,16 @@ df_text = pd.DataFrame(textfile_data, columns=["segment_id", "text"])
 df_text = df_text.set_index("segment_id")
 df_NRK = df_wav.merge(df_text, left_index=True, right_index=True)
 df_NRK.to_csv("NRK_TUL_train.csv")
-df_NRK
 
 
 
 
-# load dataset
+
+# ---------------------------------------------------
+# LOAD DATASET FROM CSV FILES
+# ---------------------------------------------------
+
+# loading dataset
 data_files = ["Stortinget_TUL_train.csv"]
 stortinget_dataset = load_dataset("csv", data_files=data_files)
 
@@ -111,7 +122,14 @@ def prepare_dataset(batch):
 
 stortinget_dataset = stortinget_dataset.map(prepare_dataset, remove_columns=stortinget_dataset.column_names["train"], num_proc=4)
 
-# set-up Trainer
+
+
+
+
+# ---------------------------------------------------
+# SET-UP TRAINER
+# ---------------------------------------------------
+
 @dataclass
 class DataCollatorCTCWithPadding:
     """
@@ -201,7 +219,7 @@ training_args = TrainingArguments(
   per_device_train_batch_size=32,
   evaluation_strategy="steps",
   num_train_epochs=30,
-  fp16=True,
+  fp16=False,
   gradient_checkpointing=True,
   save_steps=500,
   eval_steps=500,
@@ -222,5 +240,12 @@ trainer = Trainer(
     tokenizer=processor.feature_extractor,
 )
 
+
+
+
+
+# ---------------------------------------------------
 # TRAINING
+# ---------------------------------------------------
+
 trainer.train()
