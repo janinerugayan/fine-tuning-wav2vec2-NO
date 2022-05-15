@@ -228,8 +228,8 @@ trainer = Trainer(
     data_collator=data_collator,
     args=training_args,
     compute_metrics=compute_metrics,
-    train_dataset=stortinget_dataset["train"],
-    eval_dataset=stortinget_dataset["test"],
+    train_dataset=dataset["train"],
+    eval_dataset=dataset["test"],
     tokenizer=processor.feature_extractor,
 )
 
