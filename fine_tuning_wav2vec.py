@@ -77,6 +77,8 @@ def load_dataset_from_csv(data_files: DataFiles):
 # DATASET PREPARATION
 # ---------------------------------------------------
 
+# print("Preparing datasets")
+
 # dataset_Stortinget = "../../datasets/NordTrans_TUL/Stortinget"
 # output_file = "Stortinget_TUL_train.csv"
 # dataset_to_csv(dataset_Stortinget, output_file)
@@ -90,6 +92,8 @@ def load_dataset_from_csv(data_files: DataFiles):
 # ---------------------------------------------------
 # LOAD PRETRAINED MODEL
 # ---------------------------------------------------
+
+print("Loading pretrained model")
 
 model_name = 'NbAiLab/nb-wav2vec2-1b-bokmaal'
 processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
@@ -106,6 +110,8 @@ model = Wav2Vec2ForCTC.from_pretrained(model_name)
 # LOAD DATASET FROM CSV FILES
 # ---------------------------------------------------
 
+print("Loading dataset from CSV files")
+
 data_files = ["Stortinget_TUL_train.csv"]
 dataset = load_dataset_from_csv(data_files)
 
@@ -114,6 +120,8 @@ dataset = load_dataset_from_csv(data_files)
 # ---------------------------------------------------
 # SET-UP TRAINER
 # ---------------------------------------------------
+
+print("Setting up the trainer")
 
 @dataclass
 class DataCollatorCTCWithPadding:
@@ -230,6 +238,8 @@ trainer = Trainer(
 # ---------------------------------------------------
 # TRAINING
 # ---------------------------------------------------
+
+print("Training starts")
 
 # feature extraction does not need further fine-tuning
 model.freeze_feature_encoder()
