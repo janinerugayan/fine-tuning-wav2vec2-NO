@@ -23,95 +23,28 @@ transformers.logging.set_verbosity(40)
 
 
 
-
-# ---------------------------------------------------
-# DATASET PREPARATION
-# ---------------------------------------------------
-
-# Stortinget
-dataset_Stortinget = "../../datasets/NordTrans_TUL/Stortinget"
-wavfile_data = []
-textfile_data = []
-for (root, dirs, files) in os.walk(dataset_Stortinget, topdown=True):
-    for fn in files:
-        if fn.endswith(".wav"):
-            wav_id = os.path.splitext(fn)[0]
-            path = os.path.join(root, fn)
-            wavfile_data.append((wav_id, fn, path))
-        elif fn.endswith(".txt-utf8"):
-            text_id = os.path.splitext(fn)[0]
-            with open(os.path.join(root, fn)) as text_file:
-                text = text_file.read()
-            textfile_data.append((text_id, text))
-df_wav = pd.DataFrame(wavfile_data, columns=["segment_id", "wav_file", "path"])
-df_wav = df_wav.set_index("segment_id")
-df_text = pd.DataFrame(textfile_data, columns=["segment_id", "text"])
-df_text = df_text.set_index("segment_id")
-df_Stortinget = df_wav.merge(df_text, left_index=True, right_index=True)
-df_Stortinget.to_csv("Stortinget_TUL_train.csv")
-
-# NRK
-# dataset_NRK = "../../datasets/NordTrans_TUL/NRK"
-# wavfile_data = []
-# textfile_data = []
-# for (root, dirs, files) in os.walk(dataset_NRK, topdown=True):
-#     for fn in files:
-#         if fn.endswith(".wav"):
-#             wav_id = os.path.splitext(fn)[0]
-#             path = os.path.join(root, fn)
-#             wavfile_data.append((wav_id, fn, path))
-#         elif fn.endswith(".txt-utf8"):
-#             text_id = os.path.splitext(fn)[0]
-#             with open(os.path.join(root, fn)) as text_file:
-#                 text = text_file.read()
-#             textfile_data.append((text_id, text))
-# df_wav = pd.DataFrame(wavfile_data, columns=["segment_id", "wav_file", "path"])
-# df_wav = df_wav.set_index("segment_id")
-# df_text = pd.DataFrame(textfile_data, columns=["segment_id", "text"])
-# df_text = df_text.set_index("segment_id")
-# df_NRK = df_wav.merge(df_text, left_index=True, right_index=True)
-# df_NRK.to_csv("NRK_TUL_train.csv")
+def dataset_to_csv(dataset_dir: str, output_file: str):
+    wavfile_data = []
+    textfile_data = []
+    for (root, dirs, files) in os.walk(dataset_dir, topdown=True):
+        for fn in files:
+            if fn.endswith(".wav"):
+                wav_id = os.path.splitext(fn)[0]
+                path = os.path.join(root, fn)
+                wavfile_data.append((wav_id, fn, path))
+            elif fn.endswith(".txt-utf8"):
+                text_id = os.path.splitext(fn)[0]
+                with open(os.path.join(root, fn)) as text_file:
+                    text = text_file.read()
+                textfile_data.append((text_id, text))
+    df_wav = pd.DataFrame(wavfile_data, columns=["segment_id", "wav_file", "path"])
+    df_wav = df_wav.set_index("segment_id")
+    df_text = pd.DataFrame(textfile_data, columns=["segment_id", "text"])
+    df_text = df_text.set_index("segment_id")
+    df_final = df_wav.merge(df_text, left_index=True, right_index=True)
+    df_final.to_csv(output_file)
 
 
-
-
-
-# ---------------------------------------------------
-# LOAD DATASET FROM CSV FILES
-# ---------------------------------------------------
-
-# loading dataset
-data_files = ["Stortinget_TUL_train.csv"]
-stortinget_dataset = load_dataset("csv", data_files=data_files)
-
-# split dataset
-stortinget_dataset = stortinget_dataset["train"]
-stortinget_dataset = stortinget_dataset.train_test_split(test_size=0.1)
-print(stortinget_dataset)
-
-# loading audio
-stortinget_dataset = stortinget_dataset.cast_column("path", Audio())
-stortinget_dataset = stortinget_dataset.rename_column("path", "audio")
-stortinget_dataset = stortinget_dataset.cast_column("audio", Audio(sampling_rate=16_000))
-print(stortinget_dataset["train"][0])
-
-# example:
-rand_int = random.randint(0, len(stortinget_dataset))
-print("Target text:", stortinget_dataset["train"][rand_int]["text"])
-print("Input array shape:", np.asarray(stortinget_dataset["train"][rand_int]["audio"]["array"]).shape)
-print("Sampling rate:", stortinget_dataset["train"][rand_int]["audio"]["sampling_rate"])
-
-# load pretrained model
-model_name = 'NbAiLab/nb-wav2vec2-1b-bokmaal'
-processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
-# model = Wav2Vec2ForCTC.from_pretrained(model_name)
-model = Wav2Vec2ForCTC.from_pretrained(
-    model_name,
-    ctc_loss_reduction="mean",
-    pad_token_id=processor.tokenizer.pad_token_id,
-)
-
-# preprocess dataset
 def prepare_dataset(batch):
     audio = batch["audio"]
     # batched output is "un-batched" to ensure mapping is correct
@@ -120,9 +53,61 @@ def prepare_dataset(batch):
         batch["labels"] = processor(batch["text"]).input_ids
     return batch
 
-stortinget_dataset = stortinget_dataset.map(prepare_dataset, remove_columns=stortinget_dataset.column_names["train"], num_proc=4)
+
+DataFiles = list[str]
+def load_dataset_from_csv(data_files: DataFiles):
+    # load dataset from csv files
+    dataset = load_dataset("csv", data_files=data_files)
+    # split dataset
+    dataset = dataset["train"]
+    dataset = dataset.train_test_split(test_size=0.1)
+    # loading audio
+    dataset = dataset.cast_column("path", Audio())
+    dataset = dataset.rename_column("path", "audio")
+    dataset = dataset.cast_column("audio", Audio(sampling_rate=16_000))
+    # preprocess dataset
+    # dataset = dataset.map(prepare_dataset, remove_columns=stortinget_dataset.column_names["train"], num_proc=4)
+    dataset = dataset.map(prepare_dataset, num_proc=4)
+    return dataset
 
 
+
+
+# ---------------------------------------------------
+# DATASET PREPARATION
+# ---------------------------------------------------
+
+# dataset_Stortinget = "../../datasets/NordTrans_TUL/Stortinget"
+# output_file = "Stortinget_TUL_train.csv"
+# dataset_to_csv(dataset_Stortinget, output_file)
+
+# dataset_NRK = "../../datasets/NordTrans_TUL/NRK"
+# output_file = "NRK_TUL_train.csv""
+# dataset_to_csv(dataset_NRK, output_file)
+
+
+
+# ---------------------------------------------------
+# LOAD PRETRAINED MODEL
+# ---------------------------------------------------
+
+model_name = 'NbAiLab/nb-wav2vec2-1b-bokmaal'
+processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
+model = Wav2Vec2ForCTC.from_pretrained(model_name)
+# model = Wav2Vec2ForCTC.from_pretrained(
+#     model_name,
+#     ctc_loss_reduction="mean",
+#     pad_token_id=processor.tokenizer.pad_token_id,
+# )
+
+
+
+# ---------------------------------------------------
+# LOAD DATASET FROM CSV FILES
+# ---------------------------------------------------
+
+data_files = ["Stortinget_TUL_train.csv"]
+dataset = load_dataset_from_csv(data_files)
 
 
 
@@ -195,6 +180,7 @@ class DataCollatorCTCWithPadding:
 data_collator = DataCollatorCTCWithPadding(processor=processor, padding=True)
 wer_metric = load_metric("wer")
 
+
 def compute_metrics(pred):
     pred_logits = pred.predictions
     pred_ids = np.argmax(pred_logits, axis=-1)
@@ -209,8 +195,6 @@ def compute_metrics(pred):
 
     return {"wer": wer}
 
-# feature extraction does not need further fine-tuning
-model.freeze_feature_encoder()
 
 # training arguments
 training_args = TrainingArguments(
@@ -230,6 +214,7 @@ training_args = TrainingArguments(
   save_total_limit=2,
 )
 
+
 trainer = Trainer(
     model=model,
     data_collator=data_collator,
@@ -242,10 +227,10 @@ trainer = Trainer(
 
 
 
-
-
 # ---------------------------------------------------
 # TRAINING
 # ---------------------------------------------------
 
+# feature extraction does not need further fine-tuning
+model.freeze_feature_encoder()
 trainer.train()
