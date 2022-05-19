@@ -65,7 +65,7 @@ def load_dataset_from_csv(data_files: DataFiles):
     dataset = dataset.cast_column("audio", Audio(sampling_rate=16_000))
     # preprocess dataset
     dataset = dataset.map(prepare_dataset,
-                          remove_columns=stortinget_dataset.column_names["train"],
+                          remove_columns=dataset.column_names["train"],
                           num_proc=4)
     return dataset
 
