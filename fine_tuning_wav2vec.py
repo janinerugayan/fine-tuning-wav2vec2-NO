@@ -21,8 +21,6 @@ from typing import Any, Dict, List, Optional, Union
 transformers.logging.set_verbosity(40)
 
 
-
-
 def dataset_to_csv(dataset_dir: str, output_file: str):
     wavfile_data = []
     textfile_data = []
@@ -66,8 +64,9 @@ def load_dataset_from_csv(data_files: DataFiles):
     dataset = dataset.rename_column("path", "audio")
     dataset = dataset.cast_column("audio", Audio(sampling_rate=16_000))
     # preprocess dataset
-    # dataset = dataset.map(prepare_dataset, remove_columns=stortinget_dataset.column_names["train"], num_proc=4)
-    dataset = dataset.map(prepare_dataset, num_proc=4)
+    dataset = dataset.map(prepare_dataset,
+                          remove_columns=stortinget_dataset.column_names["train"],
+                          num_proc=4)
     return dataset
 
 
@@ -97,12 +96,14 @@ print("Loading pretrained model")
 
 model_name = 'NbAiLab/nb-wav2vec2-1b-bokmaal'
 processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
-model = Wav2Vec2ForCTC.from_pretrained(model_name)
-# model = Wav2Vec2ForCTC.from_pretrained(
-#     model_name,
-#     ctc_loss_reduction="mean",
-#     pad_token_id=processor.tokenizer.pad_token_id,
-# )
+# model = Wav2Vec2ForCTC.from_pretrained(model_name)
+model = Wav2Vec2ForCTC.from_pretrained(
+    model_name,
+    ctc_loss_reduction="mean",
+    pad_token_id=processor.tokenizer.pad_token_id,
+)
+# feature extraction does not need further fine-tuning
+model.freeze_feature_encoder()
 
 
 
@@ -185,7 +186,9 @@ class DataCollatorCTCWithPadding:
 
         return batch
 
+
 data_collator = DataCollatorCTCWithPadding(processor=processor, padding=True)
+
 wer_metric = load_metric("wer")
 
 
@@ -220,6 +223,7 @@ training_args = TrainingArguments(
   weight_decay=0.005,
   warmup_steps=1000,
   save_total_limit=2,
+  push_to_hub=False
 )
 
 
@@ -241,6 +245,4 @@ trainer = Trainer(
 
 print("Training starts")
 
-# feature extraction does not need further fine-tuning
-model.freeze_feature_encoder()
 trainer.train()
