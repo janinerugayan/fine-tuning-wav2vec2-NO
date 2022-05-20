@@ -234,7 +234,7 @@ trainer = Trainer(
     compute_metrics=compute_metrics,
     train_dataset=dataset["train"],
     eval_dataset=dataset["test"],
-    tokenizer=processor.feature_extractor,
+    tokenizer=processor.tokenizer,
 )
 
 
