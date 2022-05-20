@@ -212,7 +212,7 @@ def compute_metrics(pred):
 training_args = TrainingArguments(
   output_dir="../../model_ckpts/fine-tuning_wav2vec2",
   group_by_length=True,
-  per_device_train_batch_size=4,
+  per_device_train_batch_size=2,
   evaluation_strategy="steps",
   num_train_epochs=30,
   fp16=True,
