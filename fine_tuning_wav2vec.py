@@ -193,12 +193,12 @@ wer_metric = load_metric("wer")
 
 
 def compute_metrics(pred):
-    pred_logits = pred.predictions
+    pred_logits = pred.predictions.cpu()
     pred_ids = np.argmax(pred_logits, axis=-1)
 
     pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
 
-    pred_str = processor.batch_decode(pred_ids.cpu())  # this causing failure in evaluation??
+    pred_str = processor.batch_decode(pred_ids)  # this causing failure in evaluation??
 
     # we do not want to group tokens when computing the metrics
     label_str = processor.batch_decode(pred.label_ids, group_tokens=False)
@@ -212,7 +212,7 @@ def compute_metrics(pred):
 training_args = TrainingArguments(
   output_dir="../../model_ckpts/fine-tuning_wav2vec2",
   group_by_length=True,
-  per_device_train_batch_size=2,
+  per_device_train_batch_size=4,
   evaluation_strategy="steps",
   num_train_epochs=30,
   fp16=True,
