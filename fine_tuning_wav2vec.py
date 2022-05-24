@@ -211,9 +211,12 @@ def compute_metrics(pred):
     return {"wer": wer}
 
 
+repo_local_dir = "../../model_ckpts/fine-tuning_wav2vec2"
+
+
 # training arguments
 training_args = TrainingArguments(
-  output_dir="../../model_ckpts/fine-tuning_wav2vec2",
+  output_dir=repo_local_dir,
   group_by_length=True,
   per_device_train_batch_size=4,
   evaluation_strategy="steps",
