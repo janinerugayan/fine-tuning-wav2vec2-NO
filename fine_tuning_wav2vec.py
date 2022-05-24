@@ -194,7 +194,7 @@ wer_metric = load_metric("wer")
 
 def compute_metrics(pred):
     pred_logits = pred.predictions
-    pred_ids = np.argmax(pred_logits, axis=-1
+    pred_ids = np.argmax(pred_logits, axis=-1)
     print("PREDICTION IDS CALCULATED")
 
     pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
