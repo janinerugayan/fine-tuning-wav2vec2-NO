@@ -194,11 +194,14 @@ wer_metric = load_metric("wer")
 
 def compute_metrics(pred):
     pred_logits = pred.predictions
-    pred_ids = np.argmax(pred_logits, axis=-1)
+    pred_ids = np.argmax(pred_logits, axis=-1
+    print("PREDICTION IDS CALCULATED")
 
     pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
+    print("-100 REPLACED WITH PAD TOKEN ID")
 
     pred_str = processor.batch_decode(pred_ids)  # this causing failure in evaluation??
+    print("PREDICTED STRING DECODED")
 
     # we do not want to group tokens when computing the metrics
     label_str = processor.batch_decode(pred.label_ids, group_tokens=False)
@@ -224,7 +227,7 @@ training_args = TrainingArguments(
   weight_decay=0.005,
   warmup_steps=1000,
   save_total_limit=2,
-  push_to_hub=False
+  push_to_hub=False,
 )
 
 
@@ -235,7 +238,7 @@ trainer = Trainer(
     compute_metrics=compute_metrics,
     train_dataset=dataset["train"],
     eval_dataset=dataset["test"],
-    tokenizer=processor.feature_extractor
+    tokenizer=processor.feature_extractor,
 )
 
 
