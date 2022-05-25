@@ -52,8 +52,7 @@ def prepare_dataset(batch):
     return batch
 
 
-DataFiles = list[str]
-def load_dataset_from_csv(data_files: DataFiles):
+def load_dataset_from_csv(data_files: list[str]):
     # load dataset from csv files
     dataset = load_dataset("csv", data_files=data_files)
     # split dataset
@@ -73,7 +72,6 @@ def load_dataset_from_csv(data_files: DataFiles):
 def load_dataset_from_df(data_dir):
     wavfile_data = []
     textfile_data = []
-
     for (root, dirs, files) in os.walk(data_dir, topdown=True):
         for fn in files:
             if fn.endswith(".wav"):
@@ -85,28 +83,22 @@ def load_dataset_from_df(data_dir):
                 with open(os.path.join(root, fn), encoding="utf-8-sig") as text_file:
                     text = text_file.read()
                 textfile_data.append((text_id, text))
-
     df_wav = pd.DataFrame(wavfile_data, columns=["segment_id", "wav_file", "path"])
     df_wav = df_wav.set_index("segment_id")
     df_text = pd.DataFrame(textfile_data, columns=["segment_id", "text"])
     df_text = df_text.set_index("segment_id")
     dataset_df = df_wav.merge(df_text, left_index=True, right_index=True)
-
     dataset = Dataset.from_pandas(dataset_df)
-
     # split dataset
     dataset = dataset.train_test_split(test_size=0.1)
-
     # loading audio
     dataset = dataset.cast_column("path", Audio())
     dataset = dataset.rename_column("path", "audio")
     dataset = dataset.cast_column("audio", Audio(sampling_rate=16_000))
-
     # preprocess dataset
     dataset = dataset.map(prepare_dataset,
                           remove_columns=dataset.column_names["train"],
                           num_proc=4)
-
     return dataset
 
 
@@ -238,23 +230,13 @@ wer_metric = load_metric("wer")
 
 
 def compute_metrics(pred):
-    # print(f">>> PRED: {type(pred)}")
-    # print(f">>> PRED: {pred}")
-
     pred_logits = pred.predictions
-    # print(f">>> pred_logits shape: {np.shape(pred_logits)}")
-
     pred_ids = np.argmax(pred_logits, axis=-1)
-    # print(f">>> pred_ids shape: {np.shape(pred_ids)}")
-
     pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
-    # print(f">>> label_ids shape: {np.shape(pred.label_ids)}")
 
     pred_str = processor.batch_decode(pred_ids)
-
     # we do not want to group tokens when computing the metrics
     label_str = processor.batch_decode(pred.label_ids, group_tokens=False)
-    # label_str = processor.batch_decode(pred.label_ids)
 
     wer = wer_metric.compute(predictions=pred_str, references=label_str)
 
