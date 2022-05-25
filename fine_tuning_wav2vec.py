@@ -265,8 +265,8 @@ model = Wav2Vec2ForCTC.from_pretrained(pretrained_model_dir).cuda()
 
 def map_to_result(batch):
     with torch.no_grad():
-    input_values = torch.tensor(batch["input_values"], device="cuda").unsqueeze(0)
-    logits = model(input_values).logits
+        input_values = torch.tensor(batch["input_values"], device="cuda").unsqueeze(0)
+        logits = model(input_values).logits
 
     pred_ids = torch.argmax(logits, dim=-1)
     batch["pred_str"] = processor.batch_decode(pred_ids)[0]
