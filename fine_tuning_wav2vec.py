@@ -234,13 +234,4 @@ print("Training starts")
 trainer.train("../../model_ckpts/fine-tuning_wav2vec2/checkpoint-23000/")
 
 print("Saving fine-tuned model")
-Wav2Vec2ForCTC.save_pretrained(save_directory="../../fine_tuned_models/wav2vec2_NO")
-
-
-
-# ---------------------------------------------------
-# EVALUATION
-# ---------------------------------------------------
-#
-# torch.cuda.empty_cache()
-# print("Evaluation starts")
+model.save_pretrained(save_directory="../../fine_tuned_models/wav2vec2_NO")
