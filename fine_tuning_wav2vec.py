@@ -156,7 +156,7 @@ model.freeze_feature_encoder()
 # dataset = load_dataset_from_csv(data_files)
 
 print("Loading dataset direct from data dir to pandas dataframe")
-data_dir = "../localhome/datasets/NordTrans_TUL/Stortinget"
+data_dir = "../../datasets/NordTrans_TUL/Stortinget"
 dataset = load_dataset_from_df(data_dir)
 
 
