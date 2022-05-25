@@ -135,8 +135,11 @@ def load_dataset_from_df(data_dir):
 print("Loading pretrained model")
 
 model_name = 'NbAiLab/nb-wav2vec2-1b-bokmaal'
+
 # processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
-model = Wav2Vec2ForCTC.from_pretrained(model_name)
+processor = Wav2Vec2Processor.from_pretrained(model_name)
+
+# model = Wav2Vec2ForCTC.from_pretrained(model_name)
 model = Wav2Vec2ForCTC.from_pretrained(
     model_name,
     ctc_loss_reduction="mean",
