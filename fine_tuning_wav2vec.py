@@ -22,6 +22,19 @@ from typing import Any, Dict, List, Optional, Union
 
 
 
+def show_random_elements(dataset, num_examples=10):
+    assert num_examples <= len(dataset), "Can't pick more elements than there are in the dataset."
+    picks = []
+    for _ in range(num_examples):
+        pick = random.randint(0, len(dataset)-1)
+        while pick in picks:
+            pick = random.randint(0, len(dataset)-1)
+        picks.append(pick)
+
+    df = pd.DataFrame(dataset[picks])
+    display(HTML(df.to_html()))
+
+
 def prepare_dataset(batch):
     audio = batch["audio"]
     # batched output is "un-batched" to ensure mapping is correct
@@ -231,7 +244,39 @@ trainer = Trainer(
 
 torch.cuda.empty_cache()
 print("Training starts")
-trainer.train("../../model_ckpts/fine-tuning_wav2vec2/checkpoint-31500/")
+trainer.train("../../model_ckpts/fine-tuning_wav2vec2/checkpoint-34000/")
 
 print("Saving fine-tuned model")
-model.save_pretrained(save_directory="../../fine_tuned_models/wav2vec2_NO")
+pretrained_model_dir = "../../fine_tuned_models/wav2vec2_NO/"
+model.save_pretrained(save_directory=pretrained_model_dir)
+
+
+
+# ---------------------------------------------------
+# EVALUATION
+# ---------------------------------------------------
+
+torch.cuda.empty_cache()
+print("Evaluation starts")
+
+processor = Wav2Vec2Processor.from_pretrained(pretrained_model_dir)
+model = Wav2Vec2ForCTC.from_pretrained(pretrained_model_dir).cuda()
+
+
+def map_to_result(batch):
+    with torch.no_grad():
+    input_values = torch.tensor(batch["input_values"], device="cuda").unsqueeze(0)
+    logits = model(input_values).logits
+
+    pred_ids = torch.argmax(logits, dim=-1)
+    batch["pred_str"] = processor.batch_decode(pred_ids)[0]
+    batch["text"] = processor.decode(batch["labels"], group_tokens=False)
+
+    return batch
+
+
+results = dataset["test"].map(map_to_result, remove_columns=dataset["test"].column_names)
+
+print("Test WER: {:.3f}".format(wer_metric.compute(predictions=results["pred_str"], references=results["text"])))
+
+show_random_elements(results)
