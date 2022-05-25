@@ -244,7 +244,7 @@ trainer = Trainer(
 
 torch.cuda.empty_cache()
 print("Training starts")
-trainer.train("../../model_ckpts/fine-tuning_wav2vec2/checkpoint-34000/")
+trainer.train("../../model_ckpts/fine-tuning_wav2vec2/checkpoint-41000/")
 
 print("Saving fine-tuned model")
 pretrained_model_dir = "../../fine_tuned_models/wav2vec2_NO/"
