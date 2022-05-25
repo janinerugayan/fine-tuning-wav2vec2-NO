@@ -69,26 +69,31 @@ def load_dataset_from_csv(data_files: list[str]):
     return dataset
 
 
-def load_dataset_from_df(data_dir):
-    wavfile_data = []
-    textfile_data = []
-    for (root, dirs, files) in os.walk(data_dir, topdown=True):
-        for fn in files:
-            if fn.endswith(".wav"):
-                wav_id = os.path.splitext(fn)[0]
-                path = os.path.join(root, fn)
-                wavfile_data.append((wav_id, fn, path))
-            elif fn.endswith(".txt-utf8"):
-                text_id = os.path.splitext(fn)[0]
-                with open(os.path.join(root, fn), encoding="utf-8-sig") as text_file:
-                    text = text_file.read()
-                textfile_data.append((text_id, text))
-    df_wav = pd.DataFrame(wavfile_data, columns=["segment_id", "wav_file", "path"])
-    df_wav = df_wav.set_index("segment_id")
-    df_text = pd.DataFrame(textfile_data, columns=["segment_id", "text"])
-    df_text = df_text.set_index("segment_id")
-    dataset_df = df_wav.merge(df_text, left_index=True, right_index=True)
-    dataset = Dataset.from_pandas(dataset_df)
+def load_dataset_from_df(data_dir_list: list[str]):
+    frames = []
+    for path in data_dir_list:
+        wavfile_data = []
+        textfile_data = []
+        for (root, dirs, files) in os.walk(path, topdown=True):
+            for fn in files:
+                if fn.endswith(".wav"):
+                    wav_id = os.path.splitext(fn)[0]
+                    path = os.path.join(root, fn)
+                    wavfile_data.append((wav_id, fn, path))
+                elif fn.endswith(".txt-utf8"):
+                    text_id = os.path.splitext(fn)[0]
+                    with open(os.path.join(root, fn), encoding="utf-8-sig") as text_file:
+                        text = text_file.read()
+                    textfile_data.append((text_id, text))
+        df_wav = pd.DataFrame(wavfile_data, columns=["segment_id", "wav_file", "path"])
+        df_wav = df_wav.set_index("segment_id")
+        df_text = pd.DataFrame(textfile_data, columns=["segment_id", "text"])
+        df_text = df_text.set_index("segment_id")
+        dataset_df = df_wav.merge(df_text, left_index=True, right_index=True)
+        frames.append(dataset_df)
+    # concat to full dataframe
+    full_dataset_df = pd.concat(frames)
+    dataset = Dataset.from_pandas(full_dataset_df)
     # split dataset
     dataset = dataset.train_test_split(test_size=0.1)
     # loading audio
@@ -151,8 +156,8 @@ model.freeze_feature_encoder()
 # dataset = load_dataset_from_csv(data_files)
 
 print("Loading dataset direct from data dir to pandas dataframe")
-data_dir = "../../datasets/NordTrans_TUL/Stortinget"
-dataset = load_dataset_from_df(data_dir)
+data_dir_list = ["../../datasets/NordTrans_TUL/Stortinget", "../../datasets/NordTrans_TUL/NRK"]
+dataset = load_dataset_from_df(data_dir_list)
 
 
 # ---------------------------------------------------
