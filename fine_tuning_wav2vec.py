@@ -135,8 +135,8 @@ def load_dataset_from_df(data_dir):
 print("Loading pretrained model")
 
 model_name = 'NbAiLab/nb-wav2vec2-1b-bokmaal'
-processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
-# model = Wav2Vec2ForCTC.from_pretrained(model_name)
+# processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
+model = Wav2Vec2ForCTC.from_pretrained(model_name)
 model = Wav2Vec2ForCTC.from_pretrained(
     model_name,
     ctc_loss_reduction="mean",
@@ -235,23 +235,23 @@ wer_metric = load_metric("wer")
 
 
 def compute_metrics(pred):
-    print(f">>> PRED: {type(pred)}")
-    print(f">>> PRED: {pred}")
+    # print(f">>> PRED: {type(pred)}")
+    # print(f">>> PRED: {pred}")
 
     pred_logits = pred.predictions
-    print(f">>> pred_logits shape: {np.shape(pred_logits)}")
+    # print(f">>> pred_logits shape: {np.shape(pred_logits)}")
 
     pred_ids = np.argmax(pred_logits, axis=-1)
-    print(f">>> pred_ids shape: {np.shape(pred_ids)}")
+    # print(f">>> pred_ids shape: {np.shape(pred_ids)}")
 
     pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
-    print(f">>> label_ids shape: {np.shape(pred.label_ids)}")
+    # print(f">>> label_ids shape: {np.shape(pred.label_ids)}")
 
-    pred_str = processor.batch_decode(pred_logits)  # orig: pred_ids
+    pred_str = processor.batch_decode(pred_ids)
 
     # we do not want to group tokens when computing the metrics
-    # label_str = processor.batch_decode(pred.label_ids, group_tokens=False)
-    label_str = processor.batch_decode(pred.label_ids)
+    label_str = processor.batch_decode(pred.label_ids, group_tokens=False)
+    # label_str = processor.batch_decode(pred.label_ids)
 
     wer = wer_metric.compute(predictions=pred_str, references=label_str)
 
