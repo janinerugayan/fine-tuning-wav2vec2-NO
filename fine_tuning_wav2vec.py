@@ -67,7 +67,7 @@ def load_dataset_from_df(data_dir_list: list[str]):
                           remove_columns=dataset.column_names["train"],
                           num_proc=4)
     return dataset
-    
+
 
 
 # ---------------------------------------------------
@@ -231,7 +231,7 @@ trainer = Trainer(
 
 torch.cuda.empty_cache()
 print("Training starts")
-trainer.train("checkpoint-23000")
+trainer.train("../../model_ckpts/fine-tuning_wav2vec2/checkpoint-23000/")
 
 print("Saving fine-tuned model")
 Wav2Vec2ForCTC.save_pretrained(save_directory="../../fine_tuned_models/wav2vec2_NO")
