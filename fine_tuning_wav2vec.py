@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Union
 
 # https://huggingface.co/transformers/main_classes/logging.html
 # verbosity set to print errors only, by default it is set to 30 = error and warnings
-transformers.logging.set_verbosity(40)
+# transformers.logging.set_verbosity(40)
 
 
 def dataset_to_csv(dataset_dir: str, output_file: str):
