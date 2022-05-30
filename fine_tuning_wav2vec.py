@@ -292,7 +292,7 @@ print("Evaluation starts")
 
 print("Loading fine-tuned model")
 processor = Wav2Vec2Processor.from_pretrained(finetuned_model_dir)
-model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir).cuda()
+model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
 
 print("Loading test dataset")
 data_dir_list = ["../../datasets/NordTrans_TUL/Stortinget", "../../datasets/NordTrans_TUL/NRK"]
