@@ -44,7 +44,7 @@ def prepare_dataset(batch):
     return batch
 
 
-def load_dataset_from_df(data_dir_list: list[str], split_ratio=0.2):
+def load_dataset_from_files(data_dir_list: list[str], split_ratio=0.2):
     frames = []
     for path in data_dir_list:
         wavfile_data = []
@@ -123,8 +123,8 @@ print("Loading pretrained model")
 
 model_name = 'NbAiLab/nb-wav2vec2-1b-bokmaal'
 
-# processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
-processor = Wav2Vec2Processor.from_pretrained(model_name)
+processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
+# processor = Wav2Vec2Processor.from_pretrained(model_name)
 
 # model = Wav2Vec2ForCTC.from_pretrained(model_name)
 model = Wav2Vec2ForCTC.from_pretrained(
@@ -147,7 +147,7 @@ print("Loading dataset direct from data dir to pandas dataframe")
 
 data_dir_list = ["../../datasets/NordTrans_TUL/train/Stortinget/",
                  "../../datasets/NordTrans_TUL/train/NRK/"]
-dataset = load_dataset_from_df(data_dir_list, split_ratio=0.2)
+dataset = load_dataset_from_files(data_dir_list, split_ratio=0.2)
 print(dataset)
 
 
@@ -157,122 +157,122 @@ print(dataset)
 # SET-UP TRAINER
 # ---------------------------------------------------
 
-# print("Setting up the trainer")
-#
-# @dataclass
-# class DataCollatorCTCWithPadding:
-#     """
-#     Data collator that will dynamically pad the inputs received.
-#     Args:
-#         processor (:class:`~transformers.Wav2Vec2Processor`)
-#             The processor used for proccessing the data.
-#         padding (:obj:`bool`, :obj:`str` or :class:`~transformers.tokenization_utils_base.PaddingStrategy`, `optional`, defaults to :obj:`True`):
-#             Select a strategy to pad the returned sequences (according to the model's padding side and padding index)
-#             among:
-#             * :obj:`True` or :obj:`'longest'`: Pad to the longest sequence in the batch (or no padding if only a single
-#               sequence if provided).
-#             * :obj:`'max_length'`: Pad to a maximum length specified with the argument :obj:`max_length` or to the
-#               maximum acceptable input length for the model if that argument is not provided.
-#             * :obj:`False` or :obj:`'do_not_pad'` (default): No padding (i.e., can output a batch with sequences of
-#               different lengths).
-#         max_length (:obj:`int`, `optional`):
-#             Maximum length of the ``input_values`` of the returned list and optionally padding length (see above).
-#         max_length_labels (:obj:`int`, `optional`):
-#             Maximum length of the ``labels`` returned list and optionally padding length (see above).
-#         pad_to_multiple_of (:obj:`int`, `optional`):
-#             If set will pad the sequence to a multiple of the provided value.
-#             This is especially useful to enable the use of Tensor Cores on NVIDIA hardware with compute capability >=
-#             7.5 (Volta).
-#     """
-#
-#     processor: Wav2Vec2Processor
-#     padding: Union[bool, str] = True
-#     max_length: Optional[int] = None
-#     max_length_labels: Optional[int] = None
-#     pad_to_multiple_of: Optional[int] = None
-#     pad_to_multiple_of_labels: Optional[int] = None
-#
-#     def __call__(self, features: List[Dict[str, Union[List[int], torch.Tensor]]]) -> Dict[str, torch.Tensor]:
-#         # split inputs and labels since they have to be of different lenghts and need
-#         # different padding methods
-#         input_features = [{"input_values": feature["input_values"]} for feature in features]
-#         label_features = [{"input_ids": feature["labels"]} for feature in features]
-#
-#         batch = self.processor.pad(
-#             input_features,
-#             padding=self.padding,
-#             max_length=self.max_length,
-#             pad_to_multiple_of=self.pad_to_multiple_of,
-#             return_tensors="pt",
-#         )
-#         with self.processor.as_target_processor():
-#             labels_batch = self.processor.pad(
-#                 label_features,
-#                 padding=self.padding,
-#                 max_length=self.max_length_labels,
-#                 pad_to_multiple_of=self.pad_to_multiple_of_labels,
-#                 return_tensors="pt",
-#             )
-#
-#         # replace padding with -100 to ignore loss correctly
-#         labels = labels_batch["input_ids"].masked_fill(labels_batch.attention_mask.ne(1), -100)
-#
-#         batch["labels"] = labels
-#
-#         return batch
-#
-#
-# data_collator = DataCollatorCTCWithPadding(processor=processor, padding=True)
+print("Setting up the trainer")
+
+@dataclass
+class DataCollatorCTCWithPadding:
+    """
+    Data collator that will dynamically pad the inputs received.
+    Args:
+        processor (:class:`~transformers.Wav2Vec2Processor`)
+            The processor used for proccessing the data.
+        padding (:obj:`bool`, :obj:`str` or :class:`~transformers.tokenization_utils_base.PaddingStrategy`, `optional`, defaults to :obj:`True`):
+            Select a strategy to pad the returned sequences (according to the model's padding side and padding index)
+            among:
+            * :obj:`True` or :obj:`'longest'`: Pad to the longest sequence in the batch (or no padding if only a single
+              sequence if provided).
+            * :obj:`'max_length'`: Pad to a maximum length specified with the argument :obj:`max_length` or to the
+              maximum acceptable input length for the model if that argument is not provided.
+            * :obj:`False` or :obj:`'do_not_pad'` (default): No padding (i.e., can output a batch with sequences of
+              different lengths).
+        max_length (:obj:`int`, `optional`):
+            Maximum length of the ``input_values`` of the returned list and optionally padding length (see above).
+        max_length_labels (:obj:`int`, `optional`):
+            Maximum length of the ``labels`` returned list and optionally padding length (see above).
+        pad_to_multiple_of (:obj:`int`, `optional`):
+            If set will pad the sequence to a multiple of the provided value.
+            This is especially useful to enable the use of Tensor Cores on NVIDIA hardware with compute capability >=
+            7.5 (Volta).
+    """
+
+    processor: Wav2Vec2Processor
+    padding: Union[bool, str] = True
+    max_length: Optional[int] = None
+    max_length_labels: Optional[int] = None
+    pad_to_multiple_of: Optional[int] = None
+    pad_to_multiple_of_labels: Optional[int] = None
+
+    def __call__(self, features: List[Dict[str, Union[List[int], torch.Tensor]]]) -> Dict[str, torch.Tensor]:
+        # split inputs and labels since they have to be of different lenghts and need
+        # different padding methods
+        input_features = [{"input_values": feature["input_values"]} for feature in features]
+        label_features = [{"input_ids": feature["labels"]} for feature in features]
+
+        batch = self.processor.pad(
+            input_features,
+            padding=self.padding,
+            max_length=self.max_length,
+            pad_to_multiple_of=self.pad_to_multiple_of,
+            return_tensors="pt",
+        )
+        with self.processor.as_target_processor():
+            labels_batch = self.processor.pad(
+                label_features,
+                padding=self.padding,
+                max_length=self.max_length_labels,
+                pad_to_multiple_of=self.pad_to_multiple_of_labels,
+                return_tensors="pt",
+            )
+
+        # replace padding with -100 to ignore loss correctly
+        labels = labels_batch["input_ids"].masked_fill(labels_batch.attention_mask.ne(1), -100)
+
+        batch["labels"] = labels
+
+        return batch
 
 
-# wer_metric = load_metric("wer")
-
-# def compute_metrics(pred):
-#     pred_logits = pred.predictions
-#     pred_ids = np.argmax(pred_logits, axis=-1)
-#     pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
-#
-#     pred_str = processor.batch_decode(pred_ids)
-#     # we do not want to group tokens when computing the metrics
-#     label_str = processor.batch_decode(pred.label_ids, group_tokens=False)
-#
-#     wer = wer_metric.compute(predictions=pred_str, references=label_str)
-#
-#     return {"wer": wer}
+data_collator = DataCollatorCTCWithPadding(processor=processor, padding=True)
 
 
-# repo_local_dir = "../../model_ckpts/fine-tuning_wav2vec2"
-#
-#
-# # training arguments
-# training_args = TrainingArguments(
-#   output_dir=repo_local_dir,
-#   group_by_length=True,
-#   per_device_train_batch_size=4,
-#   evaluation_strategy="steps",
-#   num_train_epochs=30,
-#   fp16=True,
-#   gradient_checkpointing=True,
-#   save_steps=500,
-#   eval_steps=500,
-#   logging_steps=500,
-#   learning_rate=1e-4,
-#   weight_decay=0.005,
-#   warmup_steps=1000,
-#   save_total_limit=2,
-#   push_to_hub=False,
-# )
-#
-#
-# trainer = Trainer(
-#     model=model,
-#     data_collator=data_collator,
-#     args=training_args,
-#     compute_metrics=compute_metrics,
-#     train_dataset=dataset["train"],
-#     eval_dataset=dataset["test"],
-#     tokenizer=processor.feature_extractor,
-# )
+wer_metric = load_metric("wer")
+
+def compute_metrics(pred):
+    pred_logits = pred.predictions
+    pred_ids = np.argmax(pred_logits, axis=-1)
+    pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
+
+    pred_str = processor.batch_decode(pred_ids)
+    # we do not want to group tokens when computing the metrics
+    label_str = processor.batch_decode(pred.label_ids, group_tokens=False)
+
+    wer = wer_metric.compute(predictions=pred_str, references=label_str)
+
+    return {"wer": wer}
+
+
+repo_local_dir = "../../model_ckpts/fine-tuning_wav2vec2_v2"
+
+
+# training arguments
+training_args = TrainingArguments(
+  output_dir=repo_local_dir,
+  group_by_length=True,
+  per_device_train_batch_size=4,
+  evaluation_strategy="steps",
+  num_train_epochs=30,
+  fp16=True,
+  gradient_checkpointing=True,
+  save_steps=500,
+  eval_steps=500,
+  logging_steps=500,
+  learning_rate=1e-4,
+  weight_decay=0.005,
+  warmup_steps=1000,
+  save_total_limit=2,
+  push_to_hub=False,
+)
+
+
+trainer = Trainer(
+    model=model,
+    data_collator=data_collator,
+    args=training_args,
+    compute_metrics=compute_metrics,
+    train_dataset=dataset["train"],
+    eval_dataset=dataset["test"],
+    tokenizer=processor.feature_extractor,
+)
 
 
 
@@ -282,15 +282,16 @@ print(dataset)
 # TRAINING
 # ---------------------------------------------------
 
-# finetuned_model_dir = "../../fine_tuned_models/wav2vec2_NO/"
+finetuned_model_dir = "../../fine_tuned_models/wav2vec2_NO_v2/"
 
-# torch.cuda.empty_cache()
-# print("Training starts")
-# trainer.train("../../model_ckpts/fine-tuning_wav2vec2/checkpoint-176500/")
-#
-# print("Saving fine-tuned model")
-# model.save_pretrained(save_directory=finetuned_model_dir)
-# processor.save_pretrained(save_directory=finetuned_model_dir)
+torch.cuda.empty_cache()
+print("Training starts")
+trainer.train()
+# trainer.train("../../model_ckpts/fine-tuning_wav2vec2_v2/checkpoint-176500/")
+
+print("Saving fine-tuned model")
+model.save_pretrained(save_directory=finetuned_model_dir)
+processor.save_pretrained(save_directory=finetuned_model_dir)
 
 
 
@@ -300,32 +301,33 @@ print(dataset)
 # EVALUATION
 # ---------------------------------------------------
 
-# torch.cuda.empty_cache()
-# print("Evaluation starts")
-#
-# print("Loading fine-tuned model")
+torch.cuda.empty_cache()
+print("Evaluation starts")
+
+print("Loading fine-tuned model")
 # processor = Wav2Vec2Processor.from_pretrained(finetuned_model_dir)
-# model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
-#
-# print("Loading test dataset")
-# data_dir_list = ["../../datasets/NordTrans_TUL/train/Stortinget/", "../../datasets/NordTrans_TUL/train/NRK/"]
-# test_dataset = load_test_dataset(data_dir_list, split_ratio=0.2)
-# print(test_dataset)
-#
-# def map_to_result(batch):
-#     audiofile = batch["path"]
-#     reference_text = batch["text"]
-#     audio, rate = librosa.load(audiofile, sr=16000)
-#     input_values = processor(audio, sampling_rate=rate, return_tensors='pt').input_values
-#     with torch.no_grad():
-#         logits = model(input_values).logits
-#     pred_ids = torch.argmax(logits, dim=-1)
-#     batch["asr_str"] = processor.batch_decode(pred_ids)[0]
-#     batch["ref_str"] = reference_text
-#     return batch
-#
-# results = test_dataset["test"].map(map_to_result, remove_columns=test_dataset["test"].column_names)
-#
-# print("Test WER: {:.3f}".format(wer_metric.compute(predictions=results["asr_str"], references=results["ref_str"])))
-#
-# show_random_elements(results)
+processor = Wav2Vec2ProcessorWithLM.from_pretrained(finetuned_model_dir)
+model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
+
+print("Loading test dataset")
+data_dir_list = ["../../datasets/NordTrans_TUL/train/Stortinget/", "../../datasets/NordTrans_TUL/train/NRK/"]
+test_dataset = load_test_dataset(data_dir_list, split_ratio=0.2)
+print(test_dataset)
+
+def map_to_result(batch):
+    audiofile = batch["path"]
+    reference_text = batch["text"]
+    audio, rate = librosa.load(audiofile, sr=16000)
+    input_values = processor(audio, sampling_rate=rate, return_tensors='pt').input_values
+    with torch.no_grad():
+        logits = model(input_values).logits
+    pred_ids = torch.argmax(logits, dim=-1)
+    batch["asr_str"] = processor.batch_decode(pred_ids)[0]
+    batch["ref_str"] = reference_text
+    return batch
+
+results = test_dataset["test"].map(map_to_result, remove_columns=test_dataset["test"].column_names)
+
+print("Test WER: {:.3f}".format(wer_metric.compute(predictions=results["asr_str"], references=results["ref_str"])))
+
+show_random_elements(results)
