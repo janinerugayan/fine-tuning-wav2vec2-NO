@@ -229,19 +229,22 @@ wer_metric = load_metric("wer")
 
 def compute_metrics(pred):
     pred_logits = pred.predictions
-    pred_ids = np.argmax(pred_logits, axis=-1)
+    # pred_ids = np.argmax(pred_logits, axis=-1)
     pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
 
-    pred_str = processor.batch_decode(pred_ids)
+    # pred_str = processor.batch_decode(pred_ids)
+    pred_str = processor.batch_decode(pred_logits)
+
     # we do not want to group tokens when computing the metrics
-    label_str = processor.batch_decode(pred.label_ids, group_tokens=False)
+    # label_str = processor.batch_decode(pred.label_ids, group_tokens=False)
+    label_str = processor.batch_decode(pred.label_ids)
 
     wer = wer_metric.compute(predictions=pred_str, references=label_str)
 
     return {"wer": wer}
 
 
-repo_local_dir = "../../model_ckpts/fine-tuning_wav2vec2_v2"
+repo_local_dir = "../../model_ckpts/fine-tuning_wav2vec2_v2/"
 
 
 # training arguments
