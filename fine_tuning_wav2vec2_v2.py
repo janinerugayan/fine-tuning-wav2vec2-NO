@@ -123,8 +123,8 @@ print("Loading pretrained model")
 
 model_name = 'NbAiLab/nb-wav2vec2-1b-bokmaal'
 
-processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
-# processor = Wav2Vec2Processor.from_pretrained(model_name)
+# processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
+processor = Wav2Vec2Processor.from_pretrained(model_name)
 
 # model = Wav2Vec2ForCTC.from_pretrained(model_name)
 model = Wav2Vec2ForCTC.from_pretrained(
@@ -310,8 +310,8 @@ torch.cuda.empty_cache()
 print("Evaluation starts")
 
 print("Loading fine-tuned model")
-# processor = Wav2Vec2Processor.from_pretrained(finetuned_model_dir)
-processor = Wav2Vec2ProcessorWithLM.from_pretrained(finetuned_model_dir)
+processor = Wav2Vec2Processor.from_pretrained(finetuned_model_dir)
+# processor = Wav2Vec2ProcessorWithLM.from_pretrained(finetuned_model_dir)
 model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
 
 print("Loading test dataset")
