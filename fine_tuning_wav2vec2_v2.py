@@ -230,7 +230,7 @@ wer_metric = load_metric("wer")
 def compute_metrics(pred):
     pred_logits = pred.predictions
     # pred_ids = np.argmax(pred_logits, axis=-1)
-    pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
+    # pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
 
     print(f"logits shape: {pred_logits.shape}, labels shape: {pred.label_ids.shape}")
 
