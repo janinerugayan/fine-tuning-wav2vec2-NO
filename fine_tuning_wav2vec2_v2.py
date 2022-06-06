@@ -44,7 +44,7 @@ def prepare_dataset(batch):
     return batch
 
 
-def load_dataset_from_files(data_dir_list: list[str], split_ratio=0.2):
+def load_dataset_from_files(data_dir_list: list[str], split_ratio=0.1):
     frames = []
     for path in data_dir_list:
         wavfile_data = []
@@ -147,7 +147,7 @@ print("Loading dataset direct from data dir to pandas dataframe")
 
 data_dir_list = ["../../datasets/NordTrans_TUL/train/Stortinget/",
                  "../../datasets/NordTrans_TUL/train/NRK/"]
-dataset = load_dataset_from_files(data_dir_list, split_ratio=0.2)
+dataset = load_dataset_from_files(data_dir_list, split_ratio=0.1)
 print(dataset)
 
 
@@ -246,6 +246,7 @@ def compute_metrics(pred):
 
 
 repo_local_dir = "../../model_ckpts/fine-tuning_wav2vec2_v2/"
+log_dir = "../../model_ckpts/fine-tuning_wav2vec2_v2/runs/"
 
 
 # training arguments
@@ -265,6 +266,7 @@ training_args = TrainingArguments(
   warmup_steps=1000,
   save_total_limit=2,
   push_to_hub=False,
+  logging_dir-log_dir,
 )
 
 
