@@ -248,14 +248,13 @@ def compute_metrics(pred):
 repo_local_dir = "../../model_ckpts/fine-tuning_wav2vec2_v2/"
 log_dir = "../../model_ckpts/fine-tuning_wav2vec2_v2/runs/"
 
-
 # training arguments
 training_args = TrainingArguments(
   output_dir=repo_local_dir,
   group_by_length=True,
   per_device_train_batch_size=4,
   evaluation_strategy="steps",
-  num_train_epochs=30,
+  num_train_epochs=1,
   fp16=True,
   gradient_checkpointing=True,
   save_steps=500,
@@ -294,6 +293,11 @@ torch.cuda.empty_cache()
 print("Training starts")
 trainer.train()
 # trainer.train("../../model_ckpts/fine-tuning_wav2vec2_v2/checkpoint-176500/")
+
+log_history_fn = os.path.join(log_dir, "log_history.txt")
+for obj in trainer.state.log_history:
+    with open(log_history_fn, "a") as f:
+        print(f"{obj}\n")
 
 print("Saving fine-tuned model")
 model.save_pretrained(save_directory=finetuned_model_dir)
