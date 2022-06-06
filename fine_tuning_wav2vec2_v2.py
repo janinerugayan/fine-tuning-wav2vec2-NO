@@ -224,6 +224,7 @@ class DataCollatorCTCWithPadding:
 
 data_collator = DataCollatorCTCWithPadding(processor=processor, padding=True)
 
+
 wer_metric = load_metric("wer")
 
 def compute_metrics(pred):
@@ -231,7 +232,7 @@ def compute_metrics(pred):
     pred_ids = np.argmax(pred_logits, axis=-1)
     pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
 
-    print(f"logits shape: {pred_logits.shape}, labels shape: {pred.label_ids.shape}")
+    # print(f"logits shape: {pred_logits.shape}, labels shape: {pred.label_ids.shape}")
 
     pred_str = processor.batch_decode(pred_ids)
     # pred_str = processor.batch_decode(pred_logits)
@@ -254,7 +255,7 @@ training_args = TrainingArguments(
   group_by_length=True,
   per_device_train_batch_size=4,
   evaluation_strategy="steps",
-  num_train_epochs=1,
+  num_train_epochs=1,  # orig:30
   fp16=True,
   gradient_checkpointing=True,
   save_steps=500,
@@ -263,7 +264,7 @@ training_args = TrainingArguments(
   learning_rate=1e-4,
   weight_decay=0.005,
   warmup_steps=1000,
-  save_total_limit=2,
+  # save_total_limit=2,
   push_to_hub=False,
   logging_dir=log_dir,
 )
@@ -295,9 +296,10 @@ trainer.train()
 # trainer.train("../../model_ckpts/fine-tuning_wav2vec2_v2/checkpoint-176500/")
 
 log_history_fn = os.path.join(log_dir, "log_history.txt")
-for obj in trainer.state.log_history:
-    with open(log_history_fn, "a") as f:
-        print(f"{obj}\n")
+with open(log_history_fn, "w") as f:
+    for obj in trainer.state.log_history:
+        f.write(obj)
+        f.write("\n")
 
 print("Saving fine-tuned model")
 model.save_pretrained(save_directory=finetuned_model_dir)
