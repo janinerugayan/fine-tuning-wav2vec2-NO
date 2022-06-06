@@ -266,7 +266,7 @@ training_args = TrainingArguments(
   warmup_steps=1000,
   save_total_limit=2,
   push_to_hub=False,
-  logging_dir-log_dir,
+  logging_dir=log_dir,
 )
 
 
