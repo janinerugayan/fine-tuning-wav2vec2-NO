@@ -44,9 +44,10 @@ def prepare_dataset(batch):
     return batch
 
 
-def load_dataset_from_files(data_dir_list: list[str], split_ratio=0.1):
+def load_dataset_from_files(data_dir_list:list[str], csv_export_dir:str, split_ratio=0.1, csv_export=True):
     frames = []
     for path in data_dir_list:
+        source = os.path.basename(os.path.dirname(path))
         wavfile_data = []
         textfile_data = []
         for (root, dirs, files) in os.walk(path, topdown=True):
@@ -54,13 +55,13 @@ def load_dataset_from_files(data_dir_list: list[str], split_ratio=0.1):
                 if fn.endswith(".wav"):
                     wav_id = os.path.splitext(fn)[0]
                     path = os.path.join(root, fn)
-                    wavfile_data.append((wav_id, fn, path))
+                    wavfile_data.append((wav_id, fn, path, source))
                 elif fn.endswith(".txt-utf8"):
                     text_id = os.path.splitext(fn)[0]
                     with open(os.path.join(root, fn), encoding="utf-8-sig") as text_file:
                         text = text_file.read()
                     textfile_data.append((text_id, text))
-        df_wav = pd.DataFrame(wavfile_data, columns=["segment_id", "wav_file", "path"])
+        df_wav = pd.DataFrame(wavfile_data, columns=["segment_id", "wav_file", "path", "source"])
         df_wav = df_wav.set_index("segment_id")
         df_text = pd.DataFrame(textfile_data, columns=["segment_id", "text"])
         df_text = df_text.set_index("segment_id")
@@ -68,48 +69,26 @@ def load_dataset_from_files(data_dir_list: list[str], split_ratio=0.1):
         frames.append(dataset_df)
     # concat to full dataframe
     full_dataset_df = pd.concat(frames)
-    dataset = Dataset.from_pandas(full_dataset_df)
+    raw_dataset = Dataset.from_pandas(full_dataset_df)
     # split dataset
-    dataset = dataset.train_test_split(test_size=split_ratio)
+    raw_dataset = raw_dataset.train_test_split(test_size=split_ratio)
+    # save copy of dataset
+    if save_copy == True:
+        df_train = pd.DataFrame(raw_dataset["train"])
+        df_train.to_csv(os.path.join(dataset_export_dir, "train_set.csv"))
+        df_dev = pd.DataFrame(raw_dataset["test"])
+        df_dev.to_csv(os.path.join(dataset_export_dir, "dev_set.csv"))
     # loading audio
-    dataset = dataset.cast_column("path", Audio())
+    dataset = raw_dataset.cast_column("path", Audio())
     dataset = dataset.rename_column("path", "audio")
     dataset = dataset.cast_column("audio", Audio(sampling_rate=16_000))
     # preprocess dataset
     dataset = dataset.map(prepare_dataset,
                           remove_columns=dataset.column_names["train"],
                           num_proc=4)
-    return dataset
+    return raw_dataset, dataset
 
 
-def load_test_dataset(data_dir_list: list[str], split_ratio=0.2):
-    frames = []
-    for path in data_dir_list:
-        wavfile_data = []
-        textfile_data = []
-        for (root, dirs, files) in os.walk(path, topdown=True):
-            for fn in files:
-                if fn.endswith(".wav"):
-                    wav_id = os.path.splitext(fn)[0]
-                    path = os.path.join(root, fn)
-                    wavfile_data.append((wav_id, fn, path))
-                elif fn.endswith(".txt-utf8"):
-                    text_id = os.path.splitext(fn)[0]
-                    with open(os.path.join(root, fn), encoding="utf-8-sig") as text_file:
-                        text = text_file.read()
-                    textfile_data.append((text_id, text))
-        df_wav = pd.DataFrame(wavfile_data, columns=["segment_id", "wav_file", "path"])
-        df_wav = df_wav.set_index("segment_id")
-        df_text = pd.DataFrame(textfile_data, columns=["segment_id", "text"])
-        df_text = df_text.set_index("segment_id")
-        dataset_df = df_wav.merge(df_text, left_index=True, right_index=True)
-        frames.append(dataset_df)
-    # concat to full dataframe
-    full_dataset_df = pd.concat(frames)
-    dataset = Dataset.from_pandas(full_dataset_df)
-    # split dataset
-    dataset = dataset.train_test_split(test_size=split_ratio)
-    return dataset
 
 
 
@@ -147,7 +126,11 @@ print("Loading dataset direct from data dir to pandas dataframe")
 
 data_dir_list = ["../../datasets/NordTrans_TUL/train/Stortinget/",
                  "../../datasets/NordTrans_TUL/train/NRK/"]
-dataset = load_dataset_from_files(data_dir_list, split_ratio=0.1)
+csv_export_dir = "../../model_ckpts/fine-tuning_wav2vec2_v2/runs/"
+
+raw_dataset, dataset = load_dataset_from_files(data_dir_list, csv_export_dir, split_ratio=0.1, csv_export=True)
+
+print(raw_dataset)
 print(dataset)
 
 
@@ -322,10 +305,6 @@ processor = Wav2Vec2Processor.from_pretrained(finetuned_model_dir)
 # processor = Wav2Vec2ProcessorWithLM.from_pretrained(finetuned_model_dir)
 model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
 
-print("Loading test dataset")
-data_dir_list = ["../../datasets/NordTrans_TUL/train/Stortinget/", "../../datasets/NordTrans_TUL/train/NRK/"]
-test_dataset = load_test_dataset(data_dir_list, split_ratio=0.2)
-print(test_dataset)
 
 def map_to_result(batch):
     audiofile = batch["path"]
@@ -339,7 +318,8 @@ def map_to_result(batch):
     batch["ref_str"] = reference_text
     return batch
 
-results = test_dataset["test"].map(map_to_result, remove_columns=test_dataset["test"].column_names)
+
+results = raw_dataset["test"].map(map_to_result, remove_columns=raw_dataset["test"].column_names)
 
 print("Test WER: {:.3f}".format(wer_metric.compute(predictions=results["asr_str"], references=results["ref_str"])))
 
