@@ -297,9 +297,10 @@ trainer.train()
 
 log_history_fn = os.path.join(log_dir, "log_history.txt")
 with open(log_history_fn, "w") as f:
-    for obj in trainer.state.log_history:
-        f.write(obj)
-        f.write("\n")
+    f.write(json.dumps(trainer.state.log_history))
+    # for obj in trainer.state.log_history:
+    #     f.write(obj)
+    #     f.write("\n")
 
 print("Saving fine-tuned model")
 model.save_pretrained(save_directory=finetuned_model_dir)
