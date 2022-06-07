@@ -75,9 +75,9 @@ def load_dataset_from_files(data_dir_list:list[str], csv_export_dir:str, split_r
     # save copy of dataset
     if csv_export == True:
         df_train = pd.DataFrame(raw_dataset["train"])
-        df_train.to_csv(os.path.join(dataset_export_dir, "train_set.csv"))
+        df_train.to_csv(os.path.join(csv_export_dir, "train_set.csv"))
         df_dev = pd.DataFrame(raw_dataset["test"])
-        df_dev.to_csv(os.path.join(dataset_export_dir, "dev_set.csv"))
+        df_dev.to_csv(os.path.join(csv_export_dir, "dev_set.csv"))
     # loading audio
     dataset = raw_dataset.cast_column("path", Audio())
     dataset = dataset.rename_column("path", "audio")
