@@ -238,7 +238,7 @@ training_args = TrainingArguments(
   group_by_length=True,
   per_device_train_batch_size=4,
   evaluation_strategy="steps",
-  num_train_epochs=1,  # orig:30
+  num_train_epochs=30,  # orig:30
   fp16=True,
   gradient_checkpointing=True,
   save_steps=500,
@@ -247,7 +247,7 @@ training_args = TrainingArguments(
   learning_rate=1e-4,
   weight_decay=0.005,
   warmup_steps=1000,
-  # save_total_limit=2,
+  save_total_limit=10,
   push_to_hub=False,
   logging_dir=log_dir,
 )
@@ -281,9 +281,6 @@ trainer.train()
 log_history_fn = os.path.join(log_dir, "log_history.txt")
 with open(log_history_fn, "w") as f:
     f.write(json.dumps(trainer.state.log_history))
-    # for obj in trainer.state.log_history:
-    #     f.write(obj)
-    #     f.write("\n")
 
 print("Saving fine-tuned model")
 model.save_pretrained(save_directory=finetuned_model_dir)
