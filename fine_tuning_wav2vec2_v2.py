@@ -15,6 +15,10 @@ import re
 import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
+import wandb
+
+
+wandb.init(project="fine-tuning-wav2vec2-NO", entity="janinerugayan")
 
 # https://huggingface.co/transformers/main_classes/logging.html
 # verbosity set to print errors only, by default it is set to 30 = error and warnings
@@ -230,7 +234,6 @@ def compute_metrics(pred):
 
 
 repo_local_dir = "../../model_ckpts/fine-tuning_wav2vec2_v2/"
-log_dir = "../../model_ckpts/fine-tuning_wav2vec2_v2/runs/"
 
 # training arguments
 training_args = TrainingArguments(
@@ -249,9 +252,8 @@ training_args = TrainingArguments(
   warmup_steps=1000,
   save_total_limit=10,
   push_to_hub=False,
-  logging_dir=log_dir,
+  report_to="wandb"
 )
-
 
 trainer = Trainer(
     model=model,
@@ -272,6 +274,7 @@ trainer = Trainer(
 # ---------------------------------------------------
 
 finetuned_model_dir = "../../fine_tuned_models/wav2vec2_NO_v2/"
+log_dir = "../../model_ckpts/fine-tuning_wav2vec2_v2/runs/"
 
 torch.cuda.empty_cache()
 print("Training starts")
