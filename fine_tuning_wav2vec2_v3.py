@@ -60,16 +60,28 @@ def load_dataset_from_files(data_dir_list:list[str], csv_export_dir:str, split_r
         wavfile_data = []
         textfile_data = []
         for (root, dirs, files) in os.walk(path, topdown=True):
-            for fn in files:
-                if fn.endswith(".wav"):
-                    wav_id = os.path.splitext(fn)[0]
-                    path = os.path.join(root, fn)
-                    wavfile_data.append((wav_id, fn, path, source))
-                elif fn.endswith(".txt-utf8"):
-                    text_id = os.path.splitext(fn)[0]
-                    with open(os.path.join(root, fn), encoding="utf-8-sig") as text_file:
-                        text = text_file.read()
-                    textfile_data.append((text_id, text))
+            if source == "Rundkast_cuts":
+                for fn in files:
+                    if fn.endswith(".wav"):
+                        wav_id = os.path.splitext(fn)[0]
+                        path = os.path.join(root, fn)
+                        wavfile_data.append((wav_id, fn, path, source))
+                    elif fn.endswith(".txt"):
+                        text_id = os.path.splitext(fn)[0]
+                        with open(os.path.join(root, fn), encoding="utf-8") as text_file:
+                            text = text_file.read()
+                        textfile_data.append((text_id, text))
+            else:
+                for fn in files:
+                    if fn.endswith(".wav"):
+                        wav_id = os.path.splitext(fn)[0]
+                        path = os.path.join(root, fn)
+                        wavfile_data.append((wav_id, fn, path, source))
+                    elif fn.endswith(".txt-utf8"):
+                        text_id = os.path.splitext(fn)[0]
+                        with open(os.path.join(root, fn), encoding="utf-8-sig") as text_file:
+                            text = text_file.read()
+                        textfile_data.append((text_id, text))
         df_wav = pd.DataFrame(wavfile_data, columns=["segment_id", "wav_file", "path", "source"])
         df_wav = df_wav.set_index("segment_id")
         df_text = pd.DataFrame(textfile_data, columns=["segment_id", "text"])
