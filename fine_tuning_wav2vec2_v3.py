@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Union
 import wandb
 
 
-wandb.init(project="fine-tuning-wav2vec2-NO_v3", entity="janinerugayan")
+wandb.init(project="fine-tuning-wav2vec2-NO", entity="janinerugayan")
 
 # https://huggingface.co/transformers/main_classes/logging.html
 # verbosity set to print errors only, by default it is set to 30 = error and warnings
