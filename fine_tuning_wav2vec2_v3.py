@@ -151,7 +151,7 @@ data_dir_list = ["../../datasets/NordTrans_TUL/train/Stortinget/",
                  "../../datasets/NordTrans_TUL/train/Rundkast_cuts/"]
 csv_export_dir = "../../model_ckpts/fine-tuning_wav2vec2_v3/runs/"
 
-raw_dataset, dataset = load_dataset_from_files(data_dir_list, csv_export_dir, split_ratio=0.1, csv_export=True)
+raw_dataset, dataset = load_dataset_from_files(data_dir_list, csv_export_dir, split_ratio=0.1, csv_export=False)
 
 print(raw_dataset)
 print(dataset)
