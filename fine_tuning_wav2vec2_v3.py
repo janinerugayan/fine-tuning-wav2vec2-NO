@@ -122,7 +122,8 @@ def load_dataset_from_files(data_dir_list:list[str], csv_export_dir:str, split_r
 
 print("Loading pretrained model")
 
-model_name = 'NbAiLab/nb-wav2vec2-1b-bokmaal'
+# model_name = 'NbAiLab/nb-wav2vec2-1b-bokmaal'
+model_name = "../../fine_tuned_models/wav2vec2_NO_v2/"
 
 # processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
 processor = Wav2Vec2Processor.from_pretrained(model_name)
@@ -146,9 +147,12 @@ model.freeze_feature_encoder()
 
 print("Loading dataset direct from data dir to pandas dataframe")
 
-data_dir_list = ["../../datasets/NordTrans_TUL/train/Stortinget/",
-                 "../../datasets/NordTrans_TUL/train/NRK/",
-                 "../../datasets/NordTrans_TUL/train/Rundkast_cuts/"]
+# data_dir_list = ["../../datasets/NordTrans_TUL/train/Stortinget/",
+#                  "../../datasets/NordTrans_TUL/train/NRK/",
+#                  "../../datasets/NordTrans_TUL/train/Rundkast_cuts/"]
+
+data_dir_list = ["../../datasets/NordTrans_TUL/train/Rundkast_cuts/"]
+
 csv_export_dir = "../../model_ckpts/fine-tuning_wav2vec2_v3/runs/"
 
 raw_dataset, dataset = load_dataset_from_files(data_dir_list, csv_export_dir, split_ratio=0.1, csv_export=True)
