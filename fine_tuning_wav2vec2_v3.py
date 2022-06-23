@@ -146,9 +146,11 @@ model.freeze_feature_encoder()
 
 print("Loading dataset direct from data dir to pandas dataframe")
 
+# data_dir_list = ["../../datasets/NordTrans_TUL/train/Stortinget/",
+#                  "../../datasets/NordTrans_TUL/train/NRK/",
+#                  "../../datasets/NordTrans_TUL/train/Rundkast_cuts/"]
 data_dir_list = ["../../datasets/NordTrans_TUL/train/Stortinget/",
-                 "../../datasets/NordTrans_TUL/train/NRK/",
-                 "../../datasets/NordTrans_TUL/train/Rundkast_cuts/"]
+                 "../../datasets/NordTrans_TUL/train/NRK/"]
 csv_export_dir = "../../model_ckpts/fine-tuning_wav2vec2_v3/runs/"
 
 raw_dataset, dataset = load_dataset_from_files(data_dir_list, csv_export_dir, split_ratio=0.1, csv_export=True)
