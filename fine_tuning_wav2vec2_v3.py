@@ -60,7 +60,7 @@ def load_dataset_from_files(data_dir_list:list[str], csv_export_dir:str, split_r
         wavfile_data = []
         textfile_data = []
         for (root, dirs, files) in os.walk(path, topdown=True):
-            if source == "Rundkast_cuts":
+            if source == "Rundkast_cuts_maxlen100":
                 for fn in files:
                     if fn.endswith(".wav"):
                         wav_id = os.path.splitext(fn)[0]
