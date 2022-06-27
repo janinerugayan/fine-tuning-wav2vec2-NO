@@ -122,8 +122,8 @@ def load_dataset_from_files(data_dir_list:list[str], csv_export_dir:str, split_r
 
 print("Loading pretrained model")
 
-# model_name = 'NbAiLab/nb-wav2vec2-1b-bokmaal'
-model_name = "../../fine_tuned_models/wav2vec2_NO_v2/"
+model_name = 'NbAiLab/nb-wav2vec2-1b-bokmaal'
+# model_name = "../../fine_tuned_models/wav2vec2_NO_v2/"
 
 # processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
 processor = Wav2Vec2Processor.from_pretrained(model_name)
@@ -148,9 +148,8 @@ model.freeze_feature_encoder()
 print("Loading dataset direct from data dir to pandas dataframe")
 
 data_dir_list = ["../../datasets/NordTrans_TUL/train/Stortinget/",
-                 "../../datasets/NordTrans_TUL/train/NRK/"]
-
-# data_dir_list = ["../../datasets/NordTrans_TUL/train/Rundkast_cuts_maxlen50/"]
+                 "../../datasets/NordTrans_TUL/train/NRK/",
+                 "../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25/"]
 
 csv_export_dir = "../../model_ckpts/fine-tuning_wav2vec2_v3/runs/"
 
@@ -261,19 +260,19 @@ repo_local_dir = "../../model_ckpts/fine-tuning_wav2vec2_v3/"
 training_args = TrainingArguments(
   output_dir=repo_local_dir,
   group_by_length=True,
-  per_device_train_batch_size=1,
-  per_device_eval_batch_size=1,
+  per_device_train_batch_size=4,
+  per_device_eval_batch_size=4,
   eval_accumulation_steps=100,
   evaluation_strategy="steps",
-  num_train_epochs=30,  # orig:30
+  num_train_epochs=30,
   fp16=True,
   gradient_checkpointing=True,
   save_steps=500,
   eval_steps=500,
   logging_steps=500,
-  learning_rate=1e-4,
+  learning_rate=2e-5,  # orig: 1e-4
   weight_decay=0.005,
-  warmup_steps=1000,
+  warmup_steps=2000,  # orig: 1000
   save_total_limit=2,
   push_to_hub=False,
   report_to="wandb"
