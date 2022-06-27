@@ -151,8 +151,7 @@ print("Loading dataset direct from data dir to pandas dataframe")
 #                  "../../datasets/NordTrans_TUL/train/NRK/",
 #                  "../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25/"]
 
-data_dir_list = ["../../datasets/NordTrans_TUL/train/NRK/",
-                 "../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25/"]
+data_dir_list = ["../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25/"]
 
 csv_export_dir = "../../model_ckpts/fine-tuning_wav2vec2_v3/runs/"
 
