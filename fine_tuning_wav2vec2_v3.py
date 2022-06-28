@@ -1,4 +1,3 @@
-import transformers
 from transformers import Wav2Vec2CTCTokenizer, Wav2Vec2FeatureExtractor, Wav2Vec2Processor
 from transformers import Wav2Vec2ForCTC, Wav2Vec2ProcessorWithLM, TrainingArguments, Trainer
 from datasets import load_dataset, load_metric, ClassLabel, Audio, Dataset
