@@ -4,7 +4,7 @@ from datasets import load_dataset, load_metric, ClassLabel, Audio, Dataset
 import pandas as pd
 import math
 import numpy as np
-from semdist import *
+# from semdist import *
 import librosa
 import os
 import re
@@ -71,7 +71,7 @@ def remove_special_characters(batch):
     return batch
 
 
-def xml_to_dataframe(xml_file):    
+def xml_to_dataframe(xml_file):
     tree = ET.parse(xml_file)
     root = tree.getroot()
     data = []
@@ -136,12 +136,12 @@ def load_train_eval_dataset(data_dir_list: list[str], test_size=0.1):
 # for dividing the test dataset into meaningful segments
 def get_wav_text_segments(timebounds_dir:str, segmentbounds_dir:str, source_wav_dir:str, export_dir:str):
     for (root, dirs, files) in os.walk(segmentbounds_dir, topdown=True):
-        for file in files:            
+        for file in files:
             if file.endswith("csv"):
-                
+
                 fn = os.path.splitext(file)[0]
                 print(f"Processing: {fn}")
-                
+
                 base_df = pd.read_csv(os.path.join(segmentbounds_dir, file))
                 base_df.replace(np.nan, " ", regex=True, inplace=True)
                 for row in base_df.itertuples():
@@ -152,7 +152,7 @@ def get_wav_text_segments(timebounds_dir:str, segmentbounds_dir:str, source_wav_
                 timebounds_df = xml_to_dataframe(os.path.join(timebounds_dir, xml_file))
                 timebounds_df.columns = ["ref_text", "startTime", "endTime"]
                 dataset_df = timebounds_df.merge(base_df["sentence_boundary"], left_index=True, right_index=True)
-                
+
                 start_time = []
                 end_time = []
                 start_index = []
@@ -190,7 +190,7 @@ def get_wav_text_segments(timebounds_dir:str, segmentbounds_dir:str, source_wav_
                     text_file = export_dir + fn + "_cut_" + str(i) + ".txt"
                     with open(text_file, "w", encoding="utf-8") as f:
                         f.write(transcriptions[i])
-                        
+
 
 # for dividing the test dataset into just chunks of 20 words
 def group_by_20(timebounds_dir, source_wav_dir, export_dir):
