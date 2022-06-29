@@ -318,6 +318,7 @@ print("Loading test datasets")
 rundkast_dir = ["../localhome/datasets/NordTrans_TUL/test/Rundkast/"]
 dataset_rundkast = load_test_dataset(rundkast_dir)
 dataset_rundkast = dataset_rundkast.map(remove_special_characters)
+print(dataset_rundkast)
 
 nbtale_dir = ["../localhome/datasets/NordTrans_TUL/test/NB_Tale/"]
 dataset_nbtale = load_test_dataset(nbtale_dir)
