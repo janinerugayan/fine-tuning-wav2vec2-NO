@@ -270,6 +270,10 @@ model_name = "NbAiLab/nb-wav2vec2-1b-bokmaal"
 train_dev_set = ["../../datasets/NordTrans_TUL/train/NRK/"]
 log_file = "test2_log_wav2vec2_v3.txt"
 
+rundkast_dir = ["../../datasets/NordTrans_TUL/test/Rundkast/"]
+nbtale_dir = ["../../datasets/NordTrans_TUL/test/NB_Tale/"]
+stortinget_dir = ["../../datasets/NordTrans_TUL/test/Stortinget/"]
+
 
 # print("RUNNING MODELS WITH THE DEV DATA")
 #
@@ -315,16 +319,12 @@ print("RUNNING MODELS WITH THE TEST DATA")
 
 print("Loading test datasets")
 
-rundkast_dir = ["../localhome/datasets/NordTrans_TUL/test/Rundkast/"]
 dataset_rundkast = load_test_dataset(rundkast_dir)
 dataset_rundkast = dataset_rundkast.map(remove_special_characters)
-print(dataset_rundkast)
 
-nbtale_dir = ["../localhome/datasets/NordTrans_TUL/test/NB_Tale/"]
 dataset_nbtale = load_test_dataset(nbtale_dir)
 dataset_nbtale = dataset_nbtale.map(remove_special_characters)
 
-stortinget_dir = ["../localhome/datasets/NordTrans_TUL/test/Stortinget/"]
 dataset_stortinget = load_test_dataset(stortinget_dir)
 dataset_stortinget = dataset_stortinget.map(remove_special_characters)
 
