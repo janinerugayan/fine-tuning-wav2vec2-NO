@@ -20,7 +20,7 @@ from test_utils import *
 
 finetuned_model_dir = "../localhome/fine_tuned_models/wav2vec2_NO_v3/"
 model_name = 'NbAiLab/nb-wav2vec2-1b-bokmaal'
-train_dev_set = ["../localhome/datasets/NordTrans_TUL/train/NRK/"]
+train_dev_set = ["../../datasets/NordTrans_TUL/train/NRK/"]
 log_file = "test_wav2vec2_v3.txt"
 
 
