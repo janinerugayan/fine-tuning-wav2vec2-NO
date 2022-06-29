@@ -150,7 +150,7 @@ print("Loading dataset direct from data dir to pandas dataframe")
 #                  "../../datasets/NordTrans_TUL/train/NRK/",
 #                  "../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25/"]
 
-data_dir_list = ["../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25/"]
+data_dir_list = ["../../datasets/NordTrans_TUL/train/NRK/"]
 
 csv_export_dir = "../../model_ckpts/fine-tuning_wav2vec2_v4/runs/"
 
@@ -265,7 +265,7 @@ training_args = TrainingArguments(
   per_device_eval_batch_size=4,
   eval_accumulation_steps=100,
   evaluation_strategy="steps",
-  num_train_epochs=30,
+  num_train_epochs=4,  # orig: 30
   fp16=True,
   gradient_checkpointing=True,
   save_steps=500,
