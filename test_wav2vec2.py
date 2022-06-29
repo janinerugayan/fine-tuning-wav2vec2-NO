@@ -4,7 +4,6 @@ from datasets import load_dataset, load_metric, ClassLabel, Audio, Dataset
 import pandas as pd
 import math
 import numpy as np
-# from semdist import *
 import librosa
 import os
 import re
@@ -12,7 +11,255 @@ import torch
 import random
 from pydub import AudioSegment
 import xml.etree.ElementTree as ET
-from test_utils import *
+
+
+
+def show_random_elements(dataset, num_examples=10):
+    assert num_examples <= len(dataset), "Can't pick more elements than there are in the dataset."
+    picks = []
+    for _ in range(num_examples):
+        pick = random.randint(0, len(dataset)-1)
+        while pick in picks:
+            pick = random.randint(0, len(dataset)-1)
+        picks.append(pick)
+    df = pd.DataFrame(dataset[picks])
+    display(HTML(df.to_html()))
+
+
+def prepare_dataset(batch):
+    audio = batch["audio"]
+    # batched output is "un-batched" to ensure mapping is correct
+    batch["input_values"] = processor(audio["array"], sampling_rate=audio["sampling_rate"]).input_values[0]
+    with processor.as_target_processor():
+        batch["labels"] = processor(batch["text"]).input_ids
+    return batch
+
+
+# for dataset used for testing after fine-tuning the model
+def load_test_dataset(data_dir_list: list[str]):
+    frames = []
+    for path in data_dir_list:
+        wavfile_data = []
+        textfile_data = []
+        for (root, dirs, files) in os.walk(path, topdown=True):
+            for fn in files:
+                if fn.endswith(".wav"):
+                    wav_id = os.path.splitext(fn)[0]
+                    path = os.path.join(root, fn)
+                    wavfile_data.append((wav_id, fn, path))
+                elif fn.endswith(".txt"):
+                    text_id = os.path.splitext(fn)[0]
+                    with open(os.path.join(root, fn), encoding="utf-8") as text_file:
+                        text = text_file.read()
+                    textfile_data.append((text_id, text))
+        df_wav = pd.DataFrame(wavfile_data, columns=["segment_id", "wav_file", "path"])
+        df_wav = df_wav.set_index("segment_id")
+        df_text = pd.DataFrame(textfile_data, columns=["segment_id", "text"])
+        df_text = df_text.set_index("segment_id")
+        dataset_df = df_wav.merge(df_text, left_index=True, right_index=True)
+        frames.append(dataset_df)
+    # concat to full dataframe
+    full_dataset_df = pd.concat(frames)
+    dataset = Dataset.from_pandas(full_dataset_df, split="test")
+    return dataset
+
+
+chars_to_ignore_regex = '[\,\?\.\!\-\;\:\"]'
+def remove_special_characters(batch):
+    batch["text"] = re.sub(chars_to_ignore_regex, '', batch["text"]).lower()
+    return batch
+
+
+def xml_to_dataframe(xml_file):
+    tree = ET.parse(xml_file)
+    root = tree.getroot()
+    data = []
+    for pa in root.findall('./ch/se/pa'):
+        for p in pa.findall('./p'):
+            if 'M' in p.attrib['b']:
+                start = p.attrib['b'][2:-1].split('M')
+                if len(start) == 2:
+                    minutes = float(start[0]) * 60
+                    start_secs = minutes + float(start[1])
+                else:
+                    start_secs = float(start[0]) * 60
+            else:
+                start_secs = float(p.attrib['b'][2:-1])
+            if 'M' in p.attrib['e']:
+                end = p.attrib['e'][2:-1].split('M')
+                if len(end) == 2:
+                    minutes = float(end[0]) * 60
+                    end_secs = minutes + float(end[1])
+                else:
+                    end_secs = float(end[0]) * 60
+            else:
+                end_secs = float(p.attrib['e'][2:-1])
+            text = p.text
+            data.append([text, start_secs, end_secs])
+    df = pd.DataFrame(data, columns = ['word', 'startTime', 'endTime'])
+    return df
+
+
+# for dataset used in fine-tuning the model
+def load_train_eval_dataset(data_dir_list: list[str], test_size=0.1):
+    frames = []
+    for path in data_dir_list:
+        source = os.path.basename(os.path.dirname(path))
+        wavfile_data = []
+        textfile_data = []
+        for (root, dirs, files) in os.walk(path, topdown=True):
+            for fn in files:
+                if fn.endswith(".wav"):
+                    wav_id = os.path.splitext(fn)[0]
+                    path = os.path.join(root, fn)
+                    wavfile_data.append((wav_id, fn, path, source))
+                elif fn.endswith(".txt-utf8"):
+                    text_id = os.path.splitext(fn)[0]
+                    with open(os.path.join(root, fn), encoding="utf-8-sig") as text_file:
+                        text = text_file.read()
+                    textfile_data.append((text_id, text))
+        df_wav = pd.DataFrame(wavfile_data, columns=["segment_id", "wav_file", "path", "source"])
+        df_wav = df_wav.set_index("segment_id")
+        df_text = pd.DataFrame(textfile_data, columns=["segment_id", "text"])
+        df_text = df_text.set_index("segment_id")
+        dataset_df = df_wav.merge(df_text, left_index=True, right_index=True)
+        frames.append(dataset_df)
+    # concat to full dataframe
+    full_dataset_df = pd.concat(frames)
+    dataset = Dataset.from_pandas(full_dataset_df)
+    # split dataset
+    dataset = dataset.train_test_split(test_size=test_size)
+    return dataset, full_dataset_df
+
+
+# for dividing the test dataset into meaningful segments
+def get_wav_text_segments(timebounds_dir:str, segmentbounds_dir:str, source_wav_dir:str, export_dir:str):
+    for (root, dirs, files) in os.walk(segmentbounds_dir, topdown=True):
+        for file in files:
+            if file.endswith("csv"):
+
+                fn = os.path.splitext(file)[0]
+                print(f"Processing: {fn}")
+
+                base_df = pd.read_csv(os.path.join(segmentbounds_dir, file))
+                base_df.replace(np.nan, " ", regex=True, inplace=True)
+                for row in base_df.itertuples():
+                    if row[1] == " ":
+                        base_df.drop(row.Index, axis=0, inplace=True)
+                base_df.reset_index(inplace=True)
+                xml_file = fn + ".trsx"
+                timebounds_df = xml_to_dataframe(os.path.join(timebounds_dir, xml_file))
+                timebounds_df.columns = ["ref_text", "startTime", "endTime"]
+                dataset_df = timebounds_df.merge(base_df["sentence_boundary"], left_index=True, right_index=True)
+
+                start_time = []
+                end_time = []
+                start_index = []
+                end_index = []
+                for row in dataset_df.itertuples():
+                    if row[4] == "b":
+                        start_time.append(row[2])
+                        start_index.append(row.Index)
+                    elif row[4] == "e":
+                        end_time.append(row[3])
+                        end_index.append(row.Index + 1)
+
+                if len(start_time) > len(end_time):
+                    end_time.append(dataset_df.iloc[-1]["endTime"])
+
+                if len(start_index) > len(end_index):
+                    end_index.append(dataset_df.index[-1] + 1)
+
+                if len(start_time) != len(start_index):
+                    print("Number of timestamps and index pairs don't match!")
+                    exit()
+
+                AUDIO_FILE = source_wav_dir + fn + ".wav"
+                sound = AudioSegment.from_file(AUDIO_FILE)
+                transcriptions = []
+                for i in range(len(start_time)):
+                    start = start_time[i] * 1000
+                    end = end_time[i] * 1000
+                    cut = sound[start:end]
+                    cut.export(export_dir + fn + "_cut_" + str(i) + ".wav", format="wav")
+                    text = " ".join(dataset_df.iloc[start_index[i]:end_index[i]]["ref_text"].tolist())
+                    text_strip = re.sub(" +", " ", text)
+                    transcriptions.append(text_strip)
+                for i in range(len(transcriptions)):
+                    text_file = export_dir + fn + "_cut_" + str(i) + ".txt"
+                    with open(text_file, "w", encoding="utf-8") as f:
+                        f.write(transcriptions[i])
+
+
+# for dividing the test dataset into just chunks of 20 words
+def group_by_20(timebounds_dir, source_wav_dir, export_dir):
+    for (root, dirs, files) in os.walk(timebounds_dir, topdown=True):
+        for file in files:
+            print(f"Processing: {file}")
+            if file.endswith("checkpoint.trsx"):
+                continue
+            elif file.endswith(".trsx"):
+                xml_file = os.path.join(timebounds_dir, file)
+                df = xml_to_dataframe(xml_file)
+
+                timestamps = []
+                transcriptions = []
+                for i, g in df.groupby(np.arange(len(df)) // 20):
+                    if len(g) < 20:
+                        start = g.iloc[0]["startTime"]
+                        end = g.iloc[len(g)-1]["endTime"]
+                        text = " ".join(g.iloc[0:len(g)]["word"].tolist())
+                        text_strip = re.sub(" +", " ", text)
+                    else:
+                        start = g.iloc[0]["startTime"]
+                        end = g.iloc[19]["endTime"]
+                        text = " ".join(g.iloc[0:20]["word"].tolist())
+                        text_strip = re.sub(" +", " ", text)
+                    timestamps.append((start, end))
+                    transcriptions.append(text_strip)
+
+                fn = os.path.splitext(file)[0]
+
+                for i in range(len(transcriptions)):
+                    text_file = export_dir + fn + "_cut_" + str(i) + ".txt"
+                    with open(text_file, "w", encoding="utf-8") as f:
+                        f.write(transcriptions[i])
+
+                AUDIO_FILE = source_wav_dir + fn + ".wav"
+                sound = AudioSegment.from_file(AUDIO_FILE)
+                for i in range(len(timestamps)):
+                    start = timestamps[i][0] * 1000
+                    end = timestamps[i][1] * 1000
+                    cut = sound[start:end]
+                    cut.export(export_dir + fn + "_cut_" + str(i) + ".wav", format="wav")
+
+
+def get_transcriptions_origmodel(batch):
+    audiofile = batch["path"]
+    reference_text = batch["text"]
+    audio, rate = librosa.load(audiofile, sr=16000)
+    input_values = processor(audio, sampling_rate=rate, return_tensors='pt').input_values
+    with torch.no_grad():
+        logits = model(input_values).logits
+    transcription = processor.batch_decode(logits.detach().numpy()).text
+    batch["asr_str"] = transcription[0]
+    batch["ref_str"] = reference_text
+    return batch
+
+
+def get_transcriptions_finetuned(batch):
+    audiofile = batch["path"]
+    reference_text = batch["text"]
+    audio, rate = librosa.load(audiofile, sr=16000)
+    input_values = processor(audio, sampling_rate=rate, return_tensors='pt').input_values
+    with torch.no_grad():
+        logits = model(input_values).logits
+    pred_ids = torch.argmax(logits, dim=-1)
+    batch["asr_str"] = processor.batch_decode(pred_ids)[0]
+    batch["ref_str"] = reference_text
+    return batch
+
+
 
 
 
