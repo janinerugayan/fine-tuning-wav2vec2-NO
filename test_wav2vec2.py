@@ -336,6 +336,7 @@ wer_metric = load_metric("wer")
 
 print("RUNDKAST")
 Rundkast_results = dataset_rundkast.map(get_transcriptions_origmodel, remove_columns=dataset_rundkast.column_names)
+print(Rundkast_results)
 print("Test WER (original): {:.3f}".format(
       wer_metric.compute(predictions=Rundkast_results["asr_str"],
       references=Rundkast_results["ref_str"])))
