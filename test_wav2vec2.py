@@ -267,7 +267,7 @@ def get_transcriptions_finetuned(batch):
 
 finetuned_model_dir = "../../fine_tuned_models/wav2vec2_NO_v4/"
 model_name = "NbAiLab/nb-wav2vec2-1b-bokmaal"
-train_dev_set = ["../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25/"]
+train_dev_set = ["../../datasets/NordTrans_TUL/train/NRK/"]
 log_file = "test_log_wav2vec2_v4.txt"
 
 rundkast_dir = ["../../datasets/NordTrans_TUL/test/Rundkast/"]
