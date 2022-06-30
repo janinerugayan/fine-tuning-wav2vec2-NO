@@ -244,8 +244,8 @@ def compute_metrics(pred):
 
     print(f"logits shape: {pred_logits.shape}, labels shape: {pred.label_ids.shape}")
 
-    # pred_str = processor.batch_decode(pred_ids)
-    pred_str = processor.batch_decode(pred_logits)
+    pred_str = processor.batch_decode(pred_ids)
+    # pred_str = processor.batch_decode(pred_logits)
     print(pred_str)
 
     # we do not want to group tokens when computing the metrics
