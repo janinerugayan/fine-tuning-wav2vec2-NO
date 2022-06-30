@@ -246,6 +246,7 @@ def compute_metrics(pred):
 
     # pred_str = processor.batch_decode(pred_ids)
     pred_str = processor.batch_decode(pred_logits)
+    print(pred_str)
 
     # we do not want to group tokens when computing the metrics
     # label_str = processor.batch_decode(pred.label_ids, group_tokens=False)
