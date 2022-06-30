@@ -124,8 +124,8 @@ print("Loading pretrained model")
 model_name = 'NbAiLab/nb-wav2vec2-1b-bokmaal'
 # model_name = "../../fine_tuned_models/wav2vec2_NO_v2/"
 
-# processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
-processor = Wav2Vec2Processor.from_pretrained(model_name)
+processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
+# processor = Wav2Vec2Processor.from_pretrained(model_name)
 
 # model = Wav2Vec2ForCTC.from_pretrained(model_name)
 model = Wav2Vec2ForCTC.from_pretrained(
@@ -152,7 +152,7 @@ print("Loading dataset direct from data dir to pandas dataframe")
 
 data_dir_list = ["../../datasets/NordTrans_TUL/train/NRK/"]
 
-csv_export_dir = "../../model_ckpts/fine-tuning_wav2vec2_v4/runs/"
+csv_export_dir = "../../model_ckpts/fine-tuning_wav2vec2_v5/runs/"
 
 raw_dataset, dataset = load_dataset_from_files(data_dir_list, csv_export_dir, split_ratio=0.1, csv_export=True)
 
@@ -194,7 +194,8 @@ class DataCollatorCTCWithPadding:
             7.5 (Volta).
     """
 
-    processor: Wav2Vec2Processor
+    # processor: Wav2Vec2Processor
+    processor: Wav2Vec2ProcessorWithLM
     padding: Union[bool, str] = True
     max_length: Optional[int] = None
     max_length_labels: Optional[int] = None
@@ -243,19 +244,19 @@ def compute_metrics(pred):
 
     # print(f"logits shape: {pred_logits.shape}, labels shape: {pred.label_ids.shape}")
 
-    pred_str = processor.batch_decode(pred_ids)
-    # pred_str = processor.batch_decode(pred_logits)
+    # pred_str = processor.batch_decode(pred_ids)
+    pred_str = processor.batch_decode(pred_logits)
 
     # we do not want to group tokens when computing the metrics
-    label_str = processor.batch_decode(pred.label_ids, group_tokens=False)
-    # label_str = processor.batch_decode(pred.label_ids)
+    # label_str = processor.batch_decode(pred.label_ids, group_tokens=False)
+    label_str = processor.batch_decode(pred.label_ids)
 
     wer = wer_metric.compute(predictions=pred_str, references=label_str)
 
     return {"wer": wer}
 
 
-repo_local_dir = "../../model_ckpts/fine-tuning_wav2vec2_v4/"
+repo_local_dir = "../../model_ckpts/fine-tuning_wav2vec2_v5/"
 
 # training arguments
 training_args = TrainingArguments(
@@ -265,7 +266,7 @@ training_args = TrainingArguments(
   per_device_eval_batch_size=4,
   eval_accumulation_steps=100,
   evaluation_strategy="steps",
-  num_train_epochs=4,  # orig: 30
+  num_train_epochs=30,  # orig: 30
   fp16=True,
   gradient_checkpointing=True,
   save_steps=500,
@@ -297,8 +298,8 @@ trainer = Trainer(
 # TRAINING
 # ---------------------------------------------------
 
-finetuned_model_dir = "../../fine_tuned_models/wav2vec2_NO_v4/"
-log_dir = "../../model_ckpts/fine-tuning_wav2vec2_v4/runs/"
+finetuned_model_dir = "../../fine_tuned_models/wav2vec2_NO_v5/"
+log_dir = "../../model_ckpts/fine-tuning_wav2vec2_v5/runs/"
 
 torch.cuda.empty_cache()
 print("Training starts")
@@ -325,8 +326,8 @@ torch.cuda.empty_cache()
 print("Evaluation starts")
 
 print("Loading fine-tuned model")
-processor = Wav2Vec2Processor.from_pretrained(finetuned_model_dir)
-# processor = Wav2Vec2ProcessorWithLM.from_pretrained(finetuned_model_dir)
+# processor = Wav2Vec2Processor.from_pretrained(finetuned_model_dir)
+processor = Wav2Vec2ProcessorWithLM.from_pretrained(finetuned_model_dir)
 model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
 
 
