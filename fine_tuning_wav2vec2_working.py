@@ -59,7 +59,7 @@ def load_dataset_from_files(data_dir_list:list[str], csv_export_dir:str, split_r
         wavfile_data = []
         textfile_data = []
         for (root, dirs, files) in os.walk(path, topdown=True):
-            if source == "Rundkast_cuts_random25":  # to modify depending on Rundkast cuts folder name
+            if source == "Rundkast_cuts_random10per":  # to modify depending on Rundkast cuts folder name
                 for fn in files:
                     if fn.endswith(".wav"):
                         wav_id = os.path.splitext(fn)[0]
