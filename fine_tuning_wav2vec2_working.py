@@ -124,8 +124,8 @@ print("Loading pretrained model")
 model_name = 'NbAiLab/nb-wav2vec2-1b-bokmaal'
 # model_name = "../../fine_tuned_models/wav2vec2_NO_v2/"
 
-processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
-# processor = Wav2Vec2Processor.from_pretrained(model_name)
+# processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
+processor = Wav2Vec2Processor.from_pretrained(model_name)
 
 # model = Wav2Vec2ForCTC.from_pretrained(model_name)
 model = Wav2Vec2ForCTC.from_pretrained(
@@ -194,8 +194,8 @@ class DataCollatorCTCWithPadding:
             7.5 (Volta).
     """
 
-    # processor: Wav2Vec2Processor
-    processor: Wav2Vec2ProcessorWithLM
+    processor: Wav2Vec2Processor
+    # processor: Wav2Vec2ProcessorWithLM
     padding: Union[bool, str] = True
     max_length: Optional[int] = None
     max_length_labels: Optional[int] = None
@@ -249,8 +249,8 @@ def compute_metrics(pred):
     print(pred_str)
 
     # we do not want to group tokens when computing the metrics
-    # label_str = processor.batch_decode(pred.label_ids, group_tokens=False)
-    label_str = processor.batch_decode(pred.label_ids)
+    label_str = processor.batch_decode(pred.label_ids, group_tokens=False)
+    # label_str = processor.batch_decode(pred.label_ids)
 
     wer = wer_metric.compute(predictions=pred_str, references=label_str)
 
