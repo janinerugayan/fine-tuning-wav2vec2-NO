@@ -59,7 +59,7 @@ def load_dataset_from_files(data_dir_list:list[str], csv_export_dir:str, split_r
         wavfile_data = []
         textfile_data = []
         for (root, dirs, files) in os.walk(path, topdown=True):
-            if source == "Rundkast_cuts_random10per":  # to modify depending on Rundkast cuts folder name
+            if source == "Rundkast_cuts":  # to modify depending on Rundkast cuts folder name
                 for fn in files:
                     if fn.endswith(".wav"):
                         wav_id = os.path.splitext(fn)[0]
@@ -147,9 +147,8 @@ model.freeze_feature_encoder()
 print("Loading dataset direct from data dir to pandas dataframe")
 
 data_dir_list = ["../../datasets/NordTrans_TUL/train/Stortinget/",
-                 "../../datasets/NordTrans_TUL/train/NRK/"]
-
-# data_dir_list = ["../../datasets/NordTrans_TUL/train/Rundkast_cuts_random10per/"]
+                 "../../datasets/NordTrans_TUL/train/NRK/",
+                 "../../datasets/NordTrans_TUL/train/Rundkast_cuts/"]
 
 csv_export_dir = "../../model_ckpts/fine-tuning_wav2vec2_v5/runs/"
 
@@ -241,11 +240,8 @@ def compute_metrics(pred):
     pred_ids = np.argmax(pred_logits, axis=-1)
     pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
 
-    print(f"logits shape: {pred_logits.shape}, labels shape: {pred.label_ids.shape}")
-
     pred_str = processor.batch_decode(pred_ids)
     # pred_str = processor.batch_decode(pred_logits)
-    print(pred_str)
 
     # we do not want to group tokens when computing the metrics
     label_str = processor.batch_decode(pred.label_ids, group_tokens=False)
