@@ -265,7 +265,7 @@ training_args = TrainingArguments(
   eval_accumulation_steps=100,
   evaluation_strategy="steps",
   num_train_epochs=30,  # orig: 30
-  fp16=True,
+  fp16=False,  # orig: False
   gradient_checkpointing=True,
   save_steps=500,
   eval_steps=500,
@@ -301,8 +301,8 @@ log_dir = "../../model_ckpts/fine-tuning_wav2vec2_v6/runs/"
 
 torch.cuda.empty_cache()
 print("Training starts")
-trainer.train()
-# trainer.train("../../model_ckpts/fine-tuning_wav2vec2_v2/checkpoint-176500/")
+# trainer.train()
+trainer.train("../../model_ckpts/fine-tuning_wav2vec2_v6/checkpoint-6000")
 
 log_history_fn = os.path.join(log_dir, "log_history.txt")
 with open(log_history_fn, "w") as f:
