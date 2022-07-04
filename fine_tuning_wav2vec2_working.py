@@ -146,9 +146,11 @@ model.freeze_feature_encoder()
 
 print("Loading dataset direct from data dir to pandas dataframe")
 
-data_dir_list = ["../../datasets/NordTrans_TUL/train/Stortinget/",
-                 "../../datasets/NordTrans_TUL/train/NRK/",
-                 "../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25per/"]
+# data_dir_list = ["../../datasets/NordTrans_TUL/train/Stortinget/",
+#                  "../../datasets/NordTrans_TUL/train/NRK/",
+#                  "../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25per/"]
+
+data_dir_list = ["../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25per/"]
 
 csv_export_dir = "../../model_ckpts/fine-tuning_wav2vec2_v5/runs/"
 
@@ -259,7 +261,7 @@ training_args = TrainingArguments(
   output_dir=repo_local_dir,
   group_by_length=True,
   per_device_train_batch_size=4,
-  per_device_eval_batch_size=4,
+  # per_device_eval_batch_size=4,
   eval_accumulation_steps=100,
   evaluation_strategy="steps",
   num_train_epochs=30,  # orig: 30
