@@ -152,7 +152,7 @@ data_dir_list = ["../../datasets/NordTrans_TUL/train/Stortinget/",
 
 # data_dir_list = ["../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25per_30secmax/"]
 
-csv_export_dir = "../../model_ckpts/fine-tuning_wav2vec2_v6/runs/"
+csv_export_dir = "../../model_ckpts/fine-tuning_wav2vec2_v7/runs/"
 
 raw_dataset, dataset = load_dataset_from_files(data_dir_list, csv_export_dir, split_ratio=0.1, csv_export=True)
 
@@ -254,7 +254,7 @@ def compute_metrics(pred):
     return {"wer": wer}
 
 
-repo_local_dir = "../../model_ckpts/fine-tuning_wav2vec2_v6/"
+repo_local_dir = "../../model_ckpts/fine-tuning_wav2vec2_v7/"
 
 # training arguments
 training_args = TrainingArguments(
@@ -296,13 +296,13 @@ trainer = Trainer(
 # TRAINING
 # ---------------------------------------------------
 
-finetuned_model_dir = "../../fine_tuned_models/wav2vec2_NO_v6/"
-log_dir = "../../model_ckpts/fine-tuning_wav2vec2_v6/runs/"
+finetuned_model_dir = "../../fine_tuned_models/wav2vec2_NO_v7/"
+log_dir = "../../model_ckpts/fine-tuning_wav2vec2_v7/runs/"
 
 torch.cuda.empty_cache()
 print("Training starts")
-# trainer.train()
-trainer.train("../../model_ckpts/fine-tuning_wav2vec2_v6/checkpoint-6000")
+trainer.train()
+# trainer.train("../../model_ckpts/fine-tuning_wav2vec2_v7/checkpoint-6000")
 
 log_history_fn = os.path.join(log_dir, "log_history.txt")
 with open(log_history_fn, "w") as f:
