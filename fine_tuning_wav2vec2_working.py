@@ -59,7 +59,7 @@ def load_dataset_from_files(data_dir_list:list[str], csv_export_dir:str, split_r
         wavfile_data = []
         textfile_data = []
         for (root, dirs, files) in os.walk(path, topdown=True):
-            if source == "Rundkast_cuts_random25per":  # to modify depending on Rundkast cuts folder name
+            if source == "Rundkast_cuts_random25per_30secmax":  # to modify depending on Rundkast cuts folder name
                 for fn in files:
                     if fn.endswith(".wav"):
                         wav_id = os.path.splitext(fn)[0]
@@ -150,7 +150,7 @@ print("Loading dataset direct from data dir to pandas dataframe")
 #                  "../../datasets/NordTrans_TUL/train/NRK/",
 #                  "../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25per/"]
 
-data_dir_list = ["../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25per/"]
+data_dir_list = ["../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25per_30secmax/"]
 
 csv_export_dir = "../../model_ckpts/fine-tuning_wav2vec2_v5/runs/"
 
