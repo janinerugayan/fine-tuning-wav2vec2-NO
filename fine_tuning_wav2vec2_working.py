@@ -195,8 +195,8 @@ class DataCollatorCTCWithPadding:
             7.5 (Volta).
     """
 
-    processor: Wav2Vec2Processor
-    # processor: Wav2Vec2ProcessorWithLM
+    # processor: Wav2Vec2Processor
+    processor: Wav2Vec2ProcessorWithLM
     padding: Union[bool, str] = True
     max_length: Optional[int] = None
     max_length_labels: Optional[int] = None
