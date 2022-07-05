@@ -124,8 +124,8 @@ print("Loading pretrained model")
 model_name = 'NbAiLab/nb-wav2vec2-1b-bokmaal'
 # model_name = "../../fine_tuned_models/wav2vec2_NO_v2/"
 
-# processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
-processor = Wav2Vec2Processor.from_pretrained(model_name)
+processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
+processor_woLM = Wav2Vec2Processor.from_pretrained(model_name)
 
 # model = Wav2Vec2ForCTC.from_pretrained(model_name)
 model = Wav2Vec2ForCTC.from_pretrained(
@@ -146,13 +146,14 @@ model.freeze_feature_encoder()
 
 print("Loading dataset direct from data dir to pandas dataframe")
 
-data_dir_list = ["../../datasets/NordTrans_TUL/train/Stortinget/",
-                 "../../datasets/NordTrans_TUL/train/NRK/",
+# data_dir_list = ["../../datasets/NordTrans_TUL/train/Stortinget/",
+#                  "../../datasets/NordTrans_TUL/train/NRK/",
+#                  "../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25per_30secmax/"]
+
+data_dir_list = ["../../datasets/NordTrans_TUL/train/NRK/",
                  "../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25per_30secmax/"]
 
-# data_dir_list = ["../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25per_30secmax/"]
-
-csv_export_dir = "../../model_ckpts/fine-tuning_wav2vec2_v7/runs/"
+csv_export_dir = "../../model_ckpts/fine-tuning_wav2vec2_v8/runs/"
 
 raw_dataset, dataset = load_dataset_from_files(data_dir_list, csv_export_dir, split_ratio=0.1, csv_export=True)
 
@@ -239,22 +240,23 @@ wer_metric = load_metric("wer")
 
 def compute_metrics(pred):
     pred_logits = pred.predictions
-    pred_ids = np.argmax(pred_logits, axis=-1)
+    # pred_ids = np.argmax(pred_logits, axis=-1)
     pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
 
-    pred_str = processor.batch_decode(pred_ids)
-    # pred_str = processor.batch_decode(pred_logits)
+    # pred_str = processor.batch_decode(pred_ids)
+    pred_str = processor.batch_decode(pred_logits)
 
     # we do not want to group tokens when computing the metrics
-    label_str = processor.batch_decode(pred.label_ids, group_tokens=False)
+    label_str = processor_woLM.batch_decode(pred.label_ids, group_tokens=False)
     # label_str = processor.batch_decode(pred.label_ids)
 
-    wer = wer_metric.compute(predictions=pred_str, references=label_str)
+    # wer = wer_metric.compute(predictions=pred_str, references=label_str)
+    wer = wer_metric.compute(predictions=pred_str.text, references=label_str)
 
     return {"wer": wer}
 
 
-repo_local_dir = "../../model_ckpts/fine-tuning_wav2vec2_v7/"
+repo_local_dir = "../../model_ckpts/fine-tuning_wav2vec2_v8/"
 
 # training arguments
 training_args = TrainingArguments(
@@ -265,7 +267,7 @@ training_args = TrainingArguments(
   eval_accumulation_steps=100,
   evaluation_strategy="steps",
   num_train_epochs=30,  # orig: 30
-  fp16=False,  # orig: False
+  fp16=True,  # orig: True
   gradient_checkpointing=True,
   save_steps=500,
   eval_steps=500,
@@ -296,13 +298,13 @@ trainer = Trainer(
 # TRAINING
 # ---------------------------------------------------
 
-finetuned_model_dir = "../../fine_tuned_models/wav2vec2_NO_v7/"
-log_dir = "../../model_ckpts/fine-tuning_wav2vec2_v7/runs/"
+finetuned_model_dir = "../../fine_tuned_models/wav2vec2_NO_v8/"
+log_dir = "../../model_ckpts/fine-tuning_wav2vec2_v8/runs/"
 
 torch.cuda.empty_cache()
 print("Training starts")
 trainer.train()
-# trainer.train("../../model_ckpts/fine-tuning_wav2vec2_v7/checkpoint-6000")
+# trainer.train("../../model_ckpts/fine-tuning_wav2vec2_v8/checkpoint-6000")
 
 log_history_fn = os.path.join(log_dir, "log_history.txt")
 with open(log_history_fn, "w") as f:
