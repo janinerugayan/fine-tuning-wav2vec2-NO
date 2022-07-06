@@ -266,7 +266,7 @@ training_args = TrainingArguments(
   per_device_eval_batch_size=4,
   eval_accumulation_steps=100,
   evaluation_strategy="steps",
-  num_train_epochs=30,  # orig: 30
+  num_train_epochs=13,  # orig: 30
   fp16=True,  # orig: True
   gradient_checkpointing=True,
   save_steps=500,
@@ -303,8 +303,8 @@ log_dir = "../../model_ckpts/fine-tuning_wav2vec2_v8/runs/"
 
 torch.cuda.empty_cache()
 print("Training starts")
-trainer.train()
-# trainer.train("../../model_ckpts/fine-tuning_wav2vec2_v8/checkpoint-6000")
+# trainer.train()
+trainer.train("../../model_ckpts/fine-tuning_wav2vec2_v8/checkpoint-107500")
 
 log_history_fn = os.path.join(log_dir, "log_history.txt")
 with open(log_history_fn, "w") as f:
@@ -322,30 +322,30 @@ processor.save_pretrained(save_directory=finetuned_model_dir)
 # EVALUATION
 # ---------------------------------------------------
 
-torch.cuda.empty_cache()
-print("Evaluation starts")
-
-print("Loading fine-tuned model")
-# processor = Wav2Vec2Processor.from_pretrained(finetuned_model_dir)
-processor = Wav2Vec2ProcessorWithLM.from_pretrained(finetuned_model_dir)
-model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
-
-
-def map_to_result(batch):
-    audiofile = batch["path"]
-    reference_text = batch["text"]
-    audio, rate = librosa.load(audiofile, sr=16000)
-    input_values = processor(audio, sampling_rate=rate, return_tensors='pt').input_values
-    with torch.no_grad():
-        logits = model(input_values).logits
-    pred_ids = torch.argmax(logits, dim=-1)
-    batch["asr_str"] = processor.batch_decode(pred_ids)[0]
-    batch["ref_str"] = reference_text
-    return batch
-
-
-results = raw_dataset["test"].map(map_to_result, remove_columns=raw_dataset["test"].column_names)
-
-print("Test WER: {:.3f}".format(wer_metric.compute(predictions=results["asr_str"], references=results["ref_str"])))
-
-show_random_elements(results)
+# torch.cuda.empty_cache()
+# print("Evaluation starts")
+#
+# print("Loading fine-tuned model")
+# # processor = Wav2Vec2Processor.from_pretrained(finetuned_model_dir)
+# processor = Wav2Vec2ProcessorWithLM.from_pretrained(finetuned_model_dir)
+# model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
+#
+#
+# def map_to_result(batch):
+#     audiofile = batch["path"]
+#     reference_text = batch["text"]
+#     audio, rate = librosa.load(audiofile, sr=16000)
+#     input_values = processor(audio, sampling_rate=rate, return_tensors='pt').input_values
+#     with torch.no_grad():
+#         logits = model(input_values).logits
+#     pred_ids = torch.argmax(logits, dim=-1)
+#     batch["asr_str"] = processor.batch_decode(pred_ids)[0]
+#     batch["ref_str"] = reference_text
+#     return batch
+#
+#
+# results = raw_dataset["test"].map(map_to_result, remove_columns=raw_dataset["test"].column_names)
+#
+# print("Test WER: {:.3f}".format(wer_metric.compute(predictions=results["asr_str"], references=results["ref_str"])))
+#
+# show_random_elements(results)
