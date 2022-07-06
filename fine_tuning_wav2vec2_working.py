@@ -277,6 +277,8 @@ training_args = TrainingArguments(
   warmup_steps=2000,  # orig: 1000
   save_total_limit=2,
   push_to_hub=False,
+  seed=42,
+  data_seed=42,
   report_to="wandb"
 )
 
