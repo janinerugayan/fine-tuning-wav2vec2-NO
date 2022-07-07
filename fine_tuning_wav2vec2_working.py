@@ -121,8 +121,8 @@ def load_dataset_from_files(data_dir_list:list[str], csv_export_dir:str, split_r
 
 print("Loading pretrained model")
 
-model_name = 'NbAiLab/nb-wav2vec2-1b-bokmaal'
-# model_name = "../../fine_tuned_models/wav2vec2_NO_v2/"
+# model_name = 'NbAiLab/nb-wav2vec2-1b-bokmaal'
+model_name = 'NbAiLab/nb-wav2vec2-300m-bokmaal'
 
 processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
 processor_woLM = Wav2Vec2Processor.from_pretrained(model_name)
@@ -153,7 +153,7 @@ print("Loading dataset direct from data dir to pandas dataframe")
 data_dir_list = ["../../datasets/NordTrans_TUL/train/NRK/",
                  "../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25per_30secmax/"]
 
-csv_export_dir = "../../model_ckpts/fine-tuning_wav2vec2_v9/runs/"
+csv_export_dir = "../../model_ckpts/fine-tuning_wav2vec2_v10/runs/"
 
 raw_dataset, dataset = load_dataset_from_files(data_dir_list, csv_export_dir, split_ratio=0.1, csv_export=True)
 
@@ -256,7 +256,7 @@ def compute_metrics(pred):
     return {"wer": wer}
 
 
-repo_local_dir = "../../model_ckpts/fine-tuning_wav2vec2_v9/"
+repo_local_dir = "../../model_ckpts/fine-tuning_wav2vec2_v10/"
 
 # training arguments
 training_args = TrainingArguments(
@@ -266,13 +266,13 @@ training_args = TrainingArguments(
   per_device_eval_batch_size=4,
   eval_accumulation_steps=100,
   evaluation_strategy="steps",
-  num_train_epochs=4,  # orig: 30
+  num_train_epochs=12,  # orig: 30
   fp16=True,  # orig: True
   gradient_checkpointing=True,
   save_steps=500,
   eval_steps=500,
   logging_steps=500,
-  learning_rate=2e-5,  # orig: 1e-4
+  learning_rate=1e-4,  # orig: 1e-4
   weight_decay=0.005,
   warmup_steps=2000,  # orig: 1000
   save_total_limit=2,
@@ -300,8 +300,8 @@ trainer = Trainer(
 # TRAINING
 # ---------------------------------------------------
 
-finetuned_model_dir = "../../fine_tuned_models/wav2vec2_NO_v9/"
-log_dir = "../../model_ckpts/fine-tuning_wav2vec2_v9/runs/"
+finetuned_model_dir = "../../fine_tuned_models/wav2vec2_NO_v10/"
+log_dir = "../../model_ckpts/fine-tuning_wav2vec2_v10/runs/"
 
 torch.cuda.empty_cache()
 print("Training starts")
