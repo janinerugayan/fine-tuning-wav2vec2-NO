@@ -265,10 +265,11 @@ def get_transcriptions_finetuned(batch):
 
 
 
-finetuned_model_dir = "../../fine_tuned_models/wav2vec2_NO_v4/"
+finetuned_model_dir = "../../fine_tuned_models/wav2vec2_NO_v9/"
 model_name = "NbAiLab/nb-wav2vec2-1b-bokmaal"
-train_dev_set = ["../../datasets/NordTrans_TUL/train/NRK/"]
-log_file = "./logs/test_log_wav2vec2_v4.txt"
+train_dev_set = ["../../datasets/NordTrans_TUL/train/NRK/",
+                 "../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25per_30secmax/"]
+log_file = "./logs/test_log_wav2vec2_v9.txt"
 
 rundkast_dir = ["../../datasets/NordTrans_TUL/test/Rundkast/"]
 nbtale_dir = ["../../datasets/NordTrans_TUL/test/NB_Tale/"]
@@ -284,7 +285,7 @@ print(dataset)
 print("Fine-tuned Model WER on Dev Set")
 
 torch.cuda.empty_cache()
-processor = Wav2Vec2Processor.from_pretrained(finetuned_model_dir)
+processor = Wav2Vec2ProcessorWithLM.from_pretrained(finetuned_model_dir)
 model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
 
 wer_metric = load_metric("wer")
@@ -368,7 +369,7 @@ with open(log_file, "a") as f:
 
 print("Fine-tuned model testing")
 torch.cuda.empty_cache()
-processor = Wav2Vec2Processor.from_pretrained(finetuned_model_dir)
+processor = Wav2Vec2ProcessorWithLM.from_pretrained(finetuned_model_dir)
 model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
 wer_metric = load_metric("wer")
 
