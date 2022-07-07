@@ -134,7 +134,7 @@ def load_train_eval_dataset(data_dir_list: list[str], test_size=0.1):
 
 def load_dev_set(dev_set_path:str):
     dev_set_df = pd.read_csv(dev_set_path)
-    dev_set_df.set_index(dev_set["segment_id"], drop=True, inplace=True)
+    dev_set_df.set_index(dev_set_df["segment_id"], drop=True, inplace=True)
     dev_set_df.drop(labels=["Unnamed: 0", "segment_id"], axis="columns", inplace=True)
     dataset = Dataset.from_pandas(dev_set_df)
     return dataset
