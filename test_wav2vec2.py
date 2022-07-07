@@ -218,7 +218,8 @@ def get_transcriptions(batch):
     input_values = processor(audio, sampling_rate=rate, return_tensors='pt').input_values.to(device)
     with torch.no_grad():
         logits = model(input_values).logits
-    transcription = processor.batch_decode(logits.detach().numpy()).text
+    # transcription = processor.batch_decode(logits.detach().numpy()).text
+    transcription = processor.batch_decode(logits.detach()).text
     batch["asr_str"] = transcription[0]
     batch["ref_str"] = reference_text
     return batch
