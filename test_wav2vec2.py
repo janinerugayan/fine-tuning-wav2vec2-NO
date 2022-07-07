@@ -109,37 +109,15 @@ def load_train_eval_dataset(data_dir_list: list[str], test_size=0.1):
         textfile_data = []
         for (root, dirs, files) in os.walk(path, topdown=True):
             for fn in files:
-                if source == "Rundkast_cuts_random25per_30secmax":  # to modify depending on Rundkast cuts folder name
-                    for fn in files:
-                        if fn.endswith(".wav"):
-                            wav_id = os.path.splitext(fn)[0]
-                            path = os.path.join(root, fn)
-                            wavfile_data.append((wav_id, fn, path, source))
-                        elif fn.endswith(".txt"):
-                            text_id = os.path.splitext(fn)[0]
-                            with open(os.path.join(root, fn), encoding="utf-8") as text_file:
-                                text = text_file.read()
-                            textfile_data.append((text_id, text))
-                else:
-                    for fn in files:
-                        if fn.endswith(".wav"):
-                            wav_id = os.path.splitext(fn)[0]
-                            path = os.path.join(root, fn)
-                            wavfile_data.append((wav_id, fn, path, source))
-                        elif fn.endswith(".txt-utf8"):
-                            text_id = os.path.splitext(fn)[0]
-                            with open(os.path.join(root, fn), encoding="utf-8-sig") as text_file:
-                                text = text_file.read()
-                            textfile_data.append((text_id, text))
-                # if fn.endswith(".wav"):
-                #     wav_id = os.path.splitext(fn)[0]
-                #     path = os.path.join(root, fn)
-                #     wavfile_data.append((wav_id, fn, path, source))
-                # elif fn.endswith(".txt-utf8"):
-                #     text_id = os.path.splitext(fn)[0]
-                #     with open(os.path.join(root, fn), encoding="utf-8-sig") as text_file:
-                #         text = text_file.read()
-                #     textfile_data.append((text_id, text))
+                if fn.endswith(".wav"):
+                    wav_id = os.path.splitext(fn)[0]
+                    path = os.path.join(root, fn)
+                    wavfile_data.append((wav_id, fn, path, source))
+                elif fn.endswith(".txt-utf8"):
+                    text_id = os.path.splitext(fn)[0]
+                    with open(os.path.join(root, fn), encoding="utf-8-sig") as text_file:
+                        text = text_file.read()
+                    textfile_data.append((text_id, text))
         df_wav = pd.DataFrame(wavfile_data, columns=["segment_id", "wav_file", "path", "source"])
         df_wav = df_wav.set_index("segment_id")
         df_text = pd.DataFrame(textfile_data, columns=["segment_id", "text"])
@@ -152,6 +130,14 @@ def load_train_eval_dataset(data_dir_list: list[str], test_size=0.1):
     # split dataset
     dataset = dataset.train_test_split(test_size=test_size)
     return dataset, full_dataset_df
+
+
+def load_dev_set(dev_set_path:str):
+    dev_set_df = pd.read_csv(dev_set_path)
+    dev_set_df.set_index(dev_set["segment_id"], drop=True, inplace=True)
+    dev_set_df.drop(labels=["Unnamed: 0", "segment_id"], axis="columns", inplace=True)
+    dataset = Dataset.from_pandas(dev_set_df)
+    return dataset
 
 
 # for dividing the test dataset into meaningful segments
@@ -276,8 +262,11 @@ def get_transcriptions_finetuned(batch):
     input_values = processor(audio, sampling_rate=rate, return_tensors='pt').input_values
     with torch.no_grad():
         logits = model(input_values).logits
-    pred_ids = torch.argmax(logits, dim=-1)
-    batch["asr_str"] = processor.batch_decode(pred_ids)[0]
+    # pred_ids = torch.argmax(logits, dim=-1)
+    # batch["asr_str"] = processor.batch_decode(pred_ids)[0]
+    # batch["ref_str"] = reference_text
+    transcription = processor.batch_decode(logits.detach().numpy()).text
+    batch["asr_str"] = transcription[0]
     batch["ref_str"] = reference_text
     return batch
 
@@ -289,8 +278,7 @@ def get_transcriptions_finetuned(batch):
 
 finetuned_model_dir = "../../fine_tuned_models/wav2vec2_NO_v9/"
 model_name = "NbAiLab/nb-wav2vec2-1b-bokmaal"
-train_dev_set = ["../../datasets/NordTrans_TUL/train/NRK/",
-                 "../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25per_30secmax/"]
+train_dev_set = "../../model_ckpts/fine-tuning_wav2vec2_v9/runs/dev_set.csv"
 log_file = "./logs/test_log_wav2vec2_v9.txt"
 
 rundkast_dir = ["../../datasets/NordTrans_TUL/test/Rundkast/"]
@@ -301,7 +289,7 @@ stortinget_dir = ["../../datasets/NordTrans_TUL/test/Stortinget/"]
 print("RUNNING MODELS WITH THE DEV DATA")
 
 print("Loading Train/Dev Dataset")
-dataset, full_dataset_df = load_train_eval_dataset(train_dev_set, test_size=0.1)
+dataset = load_dev_set(train_dev_set)
 print(dataset)
 
 print("Fine-tuned Model WER on Dev Set")
@@ -311,7 +299,8 @@ processor = Wav2Vec2ProcessorWithLM.from_pretrained(finetuned_model_dir)
 model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
 
 wer_metric = load_metric("wer")
-finetuned_results = dataset["test"].map(get_transcriptions_finetuned, remove_columns=dataset["test"].column_names)
+# finetuned_results = dataset["test"].map(get_transcriptions_finetuned, remove_columns=dataset["test"].column_names)
+finetuned_results = dataset.map(get_transcriptions_finetuned)
 print("dev set WER (fine-tuned): {:.3f}".format(
      wer_metric.compute(predictions=finetuned_results["asr_str"],
      references=finetuned_results["ref_str"])))
@@ -327,7 +316,8 @@ processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
 model = Wav2Vec2ForCTC.from_pretrained(model_name)
 
 wer_metric = load_metric("wer")
-origmodel_results = dataset["test"].map(get_transcriptions_origmodel, remove_columns=dataset["test"].column_names)
+# origmodel_results = dataset["test"].map(get_transcriptions_origmodel, remove_columns=dataset["test"].column_names)
+origmodel_results = dataset.map(get_transcriptions_origmodel)
 print("dev set WER (original model): {:.3f}".format(
      wer_metric.compute(predictions=origmodel_results["asr_str"],
      references=origmodel_results["ref_str"])))
