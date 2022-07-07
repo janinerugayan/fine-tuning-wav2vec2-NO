@@ -212,10 +212,12 @@ def group_by_20(timebounds_dir, source_wav_dir, export_dir):
 
 
 def get_transcriptions(batch):
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
     audiofile = batch["path"]
     reference_text = batch["text"]
     audio, rate = librosa.load(audiofile, sr=16000)
-    input_values = processor(audio, sampling_rate=rate, return_tensors='pt').input_values
+    input_values = processor(audio, sampling_rate=rate, return_tensors='pt').input_values.to(device)
+    model = model.to(device)
     with torch.no_grad():
         logits = model(input_values).logits
     transcription = processor.batch_decode(logits.detach().numpy()).text
