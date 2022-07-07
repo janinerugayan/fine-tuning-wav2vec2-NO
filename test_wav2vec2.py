@@ -60,7 +60,7 @@ def load_test_dataset(data_dir_list: list[str]):
         frames.append(dataset_df)
     # concat to full dataframe
     full_dataset_df = pd.concat(frames)
-    dataset = Dataset.from_pandas(full_dataset_df, split="test")
+    dataset = Dataset.from_pandas(full_dataset_df)
     return dataset
 
 
@@ -101,37 +101,6 @@ def xml_to_dataframe(xml_file):
 
 
 # for dataset used in fine-tuning the model
-def load_train_eval_dataset(data_dir_list: list[str], test_size=0.1):
-    frames = []
-    for path in data_dir_list:
-        source = os.path.basename(os.path.dirname(path))
-        wavfile_data = []
-        textfile_data = []
-        for (root, dirs, files) in os.walk(path, topdown=True):
-            for fn in files:
-                if fn.endswith(".wav"):
-                    wav_id = os.path.splitext(fn)[0]
-                    path = os.path.join(root, fn)
-                    wavfile_data.append((wav_id, fn, path, source))
-                elif fn.endswith(".txt-utf8"):
-                    text_id = os.path.splitext(fn)[0]
-                    with open(os.path.join(root, fn), encoding="utf-8-sig") as text_file:
-                        text = text_file.read()
-                    textfile_data.append((text_id, text))
-        df_wav = pd.DataFrame(wavfile_data, columns=["segment_id", "wav_file", "path", "source"])
-        df_wav = df_wav.set_index("segment_id")
-        df_text = pd.DataFrame(textfile_data, columns=["segment_id", "text"])
-        df_text = df_text.set_index("segment_id")
-        dataset_df = df_wav.merge(df_text, left_index=True, right_index=True)
-        frames.append(dataset_df)
-    # concat to full dataframe
-    full_dataset_df = pd.concat(frames)
-    dataset = Dataset.from_pandas(full_dataset_df)
-    # split dataset
-    dataset = dataset.train_test_split(test_size=test_size)
-    return dataset, full_dataset_df
-
-
 def load_dev_set(dev_set_path:str):
     dev_set_df = pd.read_csv(dev_set_path)
     dev_set_df.set_index(dev_set_df["segment_id"], drop=True, inplace=True)
@@ -242,7 +211,7 @@ def group_by_20(timebounds_dir, source_wav_dir, export_dir):
                     cut.export(export_dir + fn + "_cut_" + str(i) + ".wav", format="wav")
 
 
-def get_transcriptions_origmodel(batch):
+def get_transcriptions(batch):
     audiofile = batch["path"]
     reference_text = batch["text"]
     audio, rate = librosa.load(audiofile, sr=16000)
@@ -255,18 +224,15 @@ def get_transcriptions_origmodel(batch):
     return batch
 
 
-def get_transcriptions_finetuned(batch):
+def get_transcriptions_processor_wo_LM(batch):
     audiofile = batch["path"]
     reference_text = batch["text"]
     audio, rate = librosa.load(audiofile, sr=16000)
     input_values = processor(audio, sampling_rate=rate, return_tensors='pt').input_values
     with torch.no_grad():
         logits = model(input_values).logits
-    # pred_ids = torch.argmax(logits, dim=-1)
-    # batch["asr_str"] = processor.batch_decode(pred_ids)[0]
-    # batch["ref_str"] = reference_text
-    transcription = processor.batch_decode(logits.detach().numpy()).text
-    batch["asr_str"] = transcription[0]
+    pred_ids = torch.argmax(logits, dim=-1)
+    batch["asr_str"] = processor.batch_decode(pred_ids)[0]
     batch["ref_str"] = reference_text
     return batch
 
@@ -300,7 +266,7 @@ model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
 
 wer_metric = load_metric("wer")
 # finetuned_results = dataset["test"].map(get_transcriptions_finetuned, remove_columns=dataset["test"].column_names)
-finetuned_results = dataset.map(get_transcriptions_finetuned)
+finetuned_results = dataset.map(get_transcriptions)
 print("dev set WER (fine-tuned): {:.3f}".format(
      wer_metric.compute(predictions=finetuned_results["asr_str"],
      references=finetuned_results["ref_str"])))
@@ -317,7 +283,7 @@ model = Wav2Vec2ForCTC.from_pretrained(model_name)
 
 wer_metric = load_metric("wer")
 # origmodel_results = dataset["test"].map(get_transcriptions_origmodel, remove_columns=dataset["test"].column_names)
-origmodel_results = dataset.map(get_transcriptions_origmodel)
+origmodel_results = dataset.map(get_transcriptions)
 print("dev set WER (original model): {:.3f}".format(
      wer_metric.compute(predictions=origmodel_results["asr_str"],
      references=origmodel_results["ref_str"])))
@@ -349,7 +315,7 @@ model = Wav2Vec2ForCTC.from_pretrained(model_name)
 wer_metric = load_metric("wer")
 
 print("RUNDKAST")
-Rundkast_results = dataset_rundkast.map(get_transcriptions_origmodel, remove_columns=dataset_rundkast.column_names)
+Rundkast_results = dataset_rundkast.map(get_transcriptions)
 print("Test WER (original): {:.3f}".format(
       wer_metric.compute(predictions=Rundkast_results["asr_str"],
       references=Rundkast_results["ref_str"])))
@@ -359,7 +325,7 @@ with open(log_file, "a") as f:
           references=Rundkast_results["ref_str"])))
 
 print("NB TALE")
-NBTale_results = dataset_nbtale.map(get_transcriptions_origmodel, remove_columns=dataset_nbtale.column_names)
+NBTale_results = dataset_nbtale.map(get_transcriptions)
 print("Test WER (original): {:.3f}".format(
      wer_metric.compute(predictions=NBTale_results["asr_str"],
      references=NBTale_results["ref_str"])))
@@ -369,7 +335,7 @@ with open(log_file, "a") as f:
          references=NBTale_results["ref_str"])))
 
 print("STORTINGET")
-Stortinget_results = dataset_stortinget.map(get_transcriptions_origmodel, remove_columns=dataset_stortinget.column_names)
+Stortinget_results = dataset_stortinget.map(get_transcriptions)
 print("Test WER (original): {:.3f}".format(
      wer_metric.compute(predictions=Stortinget_results["asr_str"],
      references=Stortinget_results["ref_str"])))
@@ -386,7 +352,7 @@ model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
 wer_metric = load_metric("wer")
 
 print("RUNDKAST")
-finetuned_Rundkast_results = dataset_rundkast.map(get_transcriptions_finetuned, remove_columns=dataset_rundkast.column_names)
+finetuned_Rundkast_results = dataset_rundkast.map(get_transcriptions)
 print("Test WER (fine-tuned): {:.3f}".format(
      wer_metric.compute(predictions=finetuned_Rundkast_results["asr_str"],
      references=finetuned_Rundkast_results["ref_str"])))
@@ -396,7 +362,7 @@ with open(log_file, "a") as f:
          references=finetuned_Rundkast_results["ref_str"])))
 
 print("NB TALE")
-finetuned_NBTale_results = dataset_nbtale.map(get_transcriptions_finetuned, remove_columns=dataset_nbtale.column_names)
+finetuned_NBTale_results = dataset_nbtale.map(get_transcriptions)
 print("Test WER (fine-tuned): {:.3f}".format(
      wer_metric.compute(predictions=finetuned_NBTale_results["asr_str"],
      references=finetuned_NBTale_results["ref_str"])))
@@ -406,7 +372,7 @@ with open(log_file, "a") as f:
          references=finetuned_NBTale_results["ref_str"])))
 
 print("STORTINGET")
-finetuned_Stortinget_results = dataset_stortinget.map(get_transcriptions_finetuned, remove_columns=dataset_stortinget.column_names)
+finetuned_Stortinget_results = dataset_stortinget.map(get_transcriptions)
 print("Test WER (fine-tuned): {:.3f}".format(
      wer_metric.compute(predictions=finetuned_Stortinget_results["asr_str"],
      references=finetuned_Stortinget_results["ref_str"])))
