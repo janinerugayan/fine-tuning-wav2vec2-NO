@@ -215,11 +215,10 @@ def get_transcriptions(batch):
     audiofile = batch["path"]
     reference_text = batch["text"]
     audio, rate = librosa.load(audiofile, sr=16000)
-    input_values = processor(audio, sampling_rate=rate, return_tensors='pt').input_values.to(device)
+    input_values = processor(audio, sampling_rate=rate, return_tensors='pt').input_values
     with torch.no_grad():
         logits = model(input_values).logits
-    # transcription = processor.batch_decode(logits.detach().numpy()).text
-    transcription = processor.batch_decode(logits.detach()).text
+    transcription = processor.batch_decode(logits.detach().numpy()).text
     batch["asr_str"] = transcription[0]
     batch["ref_str"] = reference_text
     return batch
@@ -252,7 +251,7 @@ rundkast_dir = ["../../datasets/NordTrans_TUL/test/Rundkast/"]
 nbtale_dir = ["../../datasets/NordTrans_TUL/test/NB_Tale/"]
 stortinget_dir = ["../../datasets/NordTrans_TUL/test/Stortinget/"]
 
-device = "cuda:0" if torch.cuda.is_available() else "cpu"
+
 
 print("RUNNING MODELS WITH THE DEV DATA")
 
@@ -265,7 +264,6 @@ print("Fine-tuned Model WER on Dev Set")
 torch.cuda.empty_cache()
 processor = Wav2Vec2ProcessorWithLM.from_pretrained(finetuned_model_dir)
 model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
-model = model.to(device)
 
 wer_metric = load_metric("wer")
 # finetuned_results = dataset["test"].map(get_transcriptions_finetuned, remove_columns=dataset["test"].column_names)
@@ -283,7 +281,6 @@ print("Original Model WER on Dev Set")
 torch.cuda.empty_cache()
 processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
 model = Wav2Vec2ForCTC.from_pretrained(model_name)
-model = model.to(device)
 
 wer_metric = load_metric("wer")
 # origmodel_results = dataset["test"].map(get_transcriptions_origmodel, remove_columns=dataset["test"].column_names)
@@ -316,7 +313,6 @@ print("Original model testing")
 torch.cuda.empty_cache()
 processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
 model = Wav2Vec2ForCTC.from_pretrained(model_name)
-model = model.to(device)
 wer_metric = load_metric("wer")
 
 print("RUNDKAST")
@@ -354,7 +350,6 @@ print("Fine-tuned model testing")
 torch.cuda.empty_cache()
 processor = Wav2Vec2ProcessorWithLM.from_pretrained(finetuned_model_dir)
 model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
-model = model.to(device)
 wer_metric = load_metric("wer")
 
 print("RUNDKAST")
