@@ -242,10 +242,10 @@ def get_transcriptions_processor_wo_LM(batch):
 
 
 
-finetuned_model_dir = "../../fine_tuned_models/wav2vec2_NO_v9/"
+finetuned_model_dir = "../../fine_tuned_models/wav2vec2_NO_v8/"
 model_name = "NbAiLab/nb-wav2vec2-1b-bokmaal"
-train_dev_set = "../../model_ckpts/fine-tuning_wav2vec2_v9/runs/dev_set.csv"
-log_file = "./logs/test_log_wav2vec2_v9.txt"
+train_dev_set = "../../model_ckpts/fine-tuning_wav2vec2_v8/runs/dev_set.csv"
+log_file = "./logs/test_log_wav2vec2_v8.txt"
 
 rundkast_dir = ["../../datasets/NordTrans_TUL/test/Rundkast/"]
 nbtale_dir = ["../../datasets/NordTrans_TUL/test/NB_Tale/"]
@@ -253,45 +253,45 @@ stortinget_dir = ["../../datasets/NordTrans_TUL/test/Stortinget/"]
 
 
 
-print("RUNNING MODELS WITH THE DEV DATA")
-
-print("Loading Train/Dev Dataset")
-dataset = load_dev_set(train_dev_set)
-print(dataset)
-
-print("Fine-tuned Model WER on Dev Set")
-
-torch.cuda.empty_cache()
-processor = Wav2Vec2ProcessorWithLM.from_pretrained(finetuned_model_dir)
-model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
-
-wer_metric = load_metric("wer")
-# finetuned_results = dataset["test"].map(get_transcriptions_finetuned, remove_columns=dataset["test"].column_names)
-finetuned_results = dataset.map(get_transcriptions)
-print("dev set WER (fine-tuned): {:.3f}".format(
-     wer_metric.compute(predictions=finetuned_results["asr_str"],
-     references=finetuned_results["ref_str"])))
-with open(log_file, "a") as f:
-    f.write("dev set WER (fine-tuned): {:.3f}\n".format(
-         wer_metric.compute(predictions=finetuned_results["asr_str"],
-         references=finetuned_results["ref_str"])))
-
-print("Original Model WER on Dev Set")
-
-torch.cuda.empty_cache()
-processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
-model = Wav2Vec2ForCTC.from_pretrained(model_name)
-
-wer_metric = load_metric("wer")
-# origmodel_results = dataset["test"].map(get_transcriptions_origmodel, remove_columns=dataset["test"].column_names)
-origmodel_results = dataset.map(get_transcriptions)
-print("dev set WER (original model): {:.3f}".format(
-     wer_metric.compute(predictions=origmodel_results["asr_str"],
-     references=origmodel_results["ref_str"])))
-with open(log_file, "a") as f:
-    f.write("dev set WER (original model): {:.3f}\n".format(
-         wer_metric.compute(predictions=origmodel_results["asr_str"],
-         references=origmodel_results["ref_str"])))
+# print("RUNNING MODELS WITH THE DEV DATA")
+#
+# print("Loading Train/Dev Dataset")
+# dataset = load_dev_set(train_dev_set)
+# print(dataset)
+#
+# print("Fine-tuned Model WER on Dev Set")
+#
+# torch.cuda.empty_cache()
+# processor = Wav2Vec2ProcessorWithLM.from_pretrained(finetuned_model_dir)
+# model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
+#
+# wer_metric = load_metric("wer")
+# # finetuned_results = dataset["test"].map(get_transcriptions_finetuned, remove_columns=dataset["test"].column_names)
+# finetuned_results = dataset.map(get_transcriptions)
+# print("dev set WER (fine-tuned): {:.3f}".format(
+#      wer_metric.compute(predictions=finetuned_results["asr_str"],
+#      references=finetuned_results["ref_str"])))
+# with open(log_file, "a") as f:
+#     f.write("dev set WER (fine-tuned): {:.3f}\n".format(
+#          wer_metric.compute(predictions=finetuned_results["asr_str"],
+#          references=finetuned_results["ref_str"])))
+#
+# print("Original Model WER on Dev Set")
+#
+# torch.cuda.empty_cache()
+# processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
+# model = Wav2Vec2ForCTC.from_pretrained(model_name)
+#
+# wer_metric = load_metric("wer")
+# # origmodel_results = dataset["test"].map(get_transcriptions_origmodel, remove_columns=dataset["test"].column_names)
+# origmodel_results = dataset.map(get_transcriptions)
+# print("dev set WER (original model): {:.3f}".format(
+#      wer_metric.compute(predictions=origmodel_results["asr_str"],
+#      references=origmodel_results["ref_str"])))
+# with open(log_file, "a") as f:
+#     f.write("dev set WER (original model): {:.3f}\n".format(
+#          wer_metric.compute(predictions=origmodel_results["asr_str"],
+#          references=origmodel_results["ref_str"])))
 
 
 
@@ -309,41 +309,41 @@ dataset_stortinget = load_test_dataset(stortinget_dir)
 dataset_stortinget = dataset_stortinget.map(remove_special_characters)
 
 
-print("Original model testing")
-torch.cuda.empty_cache()
-processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
-model = Wav2Vec2ForCTC.from_pretrained(model_name)
-wer_metric = load_metric("wer")
-
-print("RUNDKAST")
-Rundkast_results = dataset_rundkast.map(get_transcriptions)
-print("Test WER (original): {:.3f}".format(
-      wer_metric.compute(predictions=Rundkast_results["asr_str"],
-      references=Rundkast_results["ref_str"])))
-with open(log_file, "a") as f:
-    f.write("Rundkast Test WER (original): {:.3f}\n".format(
-          wer_metric.compute(predictions=Rundkast_results["asr_str"],
-          references=Rundkast_results["ref_str"])))
-
-print("NB TALE")
-NBTale_results = dataset_nbtale.map(get_transcriptions)
-print("Test WER (original): {:.3f}".format(
-     wer_metric.compute(predictions=NBTale_results["asr_str"],
-     references=NBTale_results["ref_str"])))
-with open(log_file, "a") as f:
-    f.write("NB Tale Test WER (original): {:.3f}\n".format(
-         wer_metric.compute(predictions=NBTale_results["asr_str"],
-         references=NBTale_results["ref_str"])))
-
-print("STORTINGET")
-Stortinget_results = dataset_stortinget.map(get_transcriptions)
-print("Test WER (original): {:.3f}".format(
-     wer_metric.compute(predictions=Stortinget_results["asr_str"],
-     references=Stortinget_results["ref_str"])))
-with open(log_file, "a") as f:
-    f.write("Stortinget Test WER (original): {:.3f}\n".format(
-         wer_metric.compute(predictions=Stortinget_results["asr_str"],
-         references=Stortinget_results["ref_str"])))
+# print("Original model testing")
+# torch.cuda.empty_cache()
+# processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
+# model = Wav2Vec2ForCTC.from_pretrained(model_name)
+# wer_metric = load_metric("wer")
+#
+# print("RUNDKAST")
+# Rundkast_results = dataset_rundkast.map(get_transcriptions)
+# print("Test WER (original): {:.3f}".format(
+#       wer_metric.compute(predictions=Rundkast_results["asr_str"],
+#       references=Rundkast_results["ref_str"])))
+# with open(log_file, "a") as f:
+#     f.write("Rundkast Test WER (original): {:.3f}\n".format(
+#           wer_metric.compute(predictions=Rundkast_results["asr_str"],
+#           references=Rundkast_results["ref_str"])))
+#
+# print("NB TALE")
+# NBTale_results = dataset_nbtale.map(get_transcriptions)
+# print("Test WER (original): {:.3f}".format(
+#      wer_metric.compute(predictions=NBTale_results["asr_str"],
+#      references=NBTale_results["ref_str"])))
+# with open(log_file, "a") as f:
+#     f.write("NB Tale Test WER (original): {:.3f}\n".format(
+#          wer_metric.compute(predictions=NBTale_results["asr_str"],
+#          references=NBTale_results["ref_str"])))
+#
+# print("STORTINGET")
+# Stortinget_results = dataset_stortinget.map(get_transcriptions)
+# print("Test WER (original): {:.3f}".format(
+#      wer_metric.compute(predictions=Stortinget_results["asr_str"],
+#      references=Stortinget_results["ref_str"])))
+# with open(log_file, "a") as f:
+#     f.write("Stortinget Test WER (original): {:.3f}\n".format(
+#          wer_metric.compute(predictions=Stortinget_results["asr_str"],
+#          references=Stortinget_results["ref_str"])))
 
 
 print("Fine-tuned model testing")
