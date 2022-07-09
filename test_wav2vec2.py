@@ -11,6 +11,7 @@ import torch
 import random
 from pydub import AudioSegment
 import xml.etree.ElementTree as ET
+import argparse
 
 
 
@@ -25,7 +26,6 @@ def show_random_elements(dataset, num_examples=10):
     df = pd.DataFrame(dataset[picks])
     display(HTML(df.to_html()))
 
-
 def prepare_dataset(batch):
     audio = batch["audio"]
     # batched output is "un-batched" to ensure mapping is correct
@@ -33,7 +33,6 @@ def prepare_dataset(batch):
     with processor.as_target_processor():
         batch["labels"] = processor(batch["text"]).input_ids
     return batch
-
 
 # for dataset used for testing after fine-tuning the model
 def load_test_dataset(data_dir_list: list[str]):
@@ -63,12 +62,10 @@ def load_test_dataset(data_dir_list: list[str]):
     dataset = Dataset.from_pandas(full_dataset_df)
     return dataset
 
-
 chars_to_ignore_regex = '[\,\?\.\!\-\;\:\"]'
 def remove_special_characters(batch):
     batch["text"] = re.sub(chars_to_ignore_regex, '', batch["text"]).lower()
     return batch
-
 
 def xml_to_dataframe(xml_file):
     tree = ET.parse(xml_file)
@@ -99,7 +96,6 @@ def xml_to_dataframe(xml_file):
     df = pd.DataFrame(data, columns = ['word', 'startTime', 'endTime'])
     return df
 
-
 # for dataset used in fine-tuning the model
 def load_dev_set(dev_set_path:str):
     dev_set_df = pd.read_csv(dev_set_path)
@@ -107,7 +103,6 @@ def load_dev_set(dev_set_path:str):
     dev_set_df.drop(labels=["Unnamed: 0", "segment_id"], axis="columns", inplace=True)
     dataset = Dataset.from_pandas(dev_set_df)
     return dataset
-
 
 # for dividing the test dataset into meaningful segments
 def get_wav_text_segments(timebounds_dir:str, segmentbounds_dir:str, source_wav_dir:str, export_dir:str):
@@ -167,7 +162,6 @@ def get_wav_text_segments(timebounds_dir:str, segmentbounds_dir:str, source_wav_
                     with open(text_file, "w", encoding="utf-8") as f:
                         f.write(transcriptions[i])
 
-
 # for dividing the test dataset into just chunks of 20 words
 def group_by_20(timebounds_dir, source_wav_dir, export_dir):
     for (root, dirs, files) in os.walk(timebounds_dir, topdown=True):
@@ -210,7 +204,6 @@ def group_by_20(timebounds_dir, source_wav_dir, export_dir):
                     cut = sound[start:end]
                     cut.export(export_dir + fn + "_cut_" + str(i) + ".wav", format="wav")
 
-
 def get_transcriptions(batch):
     audiofile = batch["path"]
     reference_text = batch["text"]
@@ -222,7 +215,6 @@ def get_transcriptions(batch):
     batch["asr_str"] = transcription[0]
     batch["ref_str"] = reference_text
     return batch
-
 
 def get_transcriptions_processor_wo_LM(batch):
     audiofile = batch["path"]
@@ -240,17 +232,112 @@ def get_transcriptions_processor_wo_LM(batch):
 
 
 
+parser = argparse.ArgumentParser()
+parser.add_argument('--original_model',     type=str)
+parser.add_argument('--fine_tuned_model',   type=str)
+parser.add_argument('--log_file',           type=str)
+parser.add_argument('--get_orig_model_results', type=bool)
+args = parser.parse_args()
 
-
-finetuned_model_dir = "../../fine_tuned_models/wav2vec2_NO_v11/"
-# model_name = "NbAiLab/nb-wav2vec2-1b-bokmaal"
-model_name = "NbAiLab/nb-wav2vec2-300m-bokmaal"
-train_dev_set = "../../model_ckpts/fine-tuning_wav2vec2_v10/runs/dev_set.csv"
-log_file = "./logs/test_log_wav2vec2_v11.txt"
+model_name = args.original_model
+finetuned_model_dir = args.fine_tuned_model
+log_file = args.log_file
 
 rundkast_dir = ["../../datasets/NordTrans_TUL/test/Rundkast/"]
 nbtale_dir = ["../../datasets/NordTrans_TUL/test/NB_Tale/"]
 stortinget_dir = ["../../datasets/NordTrans_TUL/test/Stortinget/"]
+
+
+
+print("RUNNING MODELS WITH THE TEST DATA")
+
+print("Loading test datasets")
+
+dataset_rundkast = load_test_dataset(rundkast_dir)
+dataset_rundkast = dataset_rundkast.map(remove_special_characters)
+
+dataset_nbtale = load_test_dataset(nbtale_dir)
+dataset_nbtale = dataset_nbtale.map(remove_special_characters)
+
+dataset_stortinget = load_test_dataset(stortinget_dir)
+dataset_stortinget = dataset_stortinget.map(remove_special_characters)
+
+if args.get_orig_model_results == True:
+    print("Original model testing")
+    torch.cuda.empty_cache()
+    processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
+    model = Wav2Vec2ForCTC.from_pretrained(model_name)
+    wer_metric = load_metric("wer")
+
+    print("RUNDKAST")
+    Rundkast_results = dataset_rundkast.map(get_transcriptions)
+    print("Test WER (original): {:.3f}".format(
+          wer_metric.compute(predictions=Rundkast_results["asr_str"],
+          references=Rundkast_results["ref_str"])))
+    with open(log_file, "a") as f:
+        f.write("Rundkast Test WER (original): {:.3f}\n".format(
+              wer_metric.compute(predictions=Rundkast_results["asr_str"],
+              references=Rundkast_results["ref_str"])))
+
+    print("NB TALE")
+    NBTale_results = dataset_nbtale.map(get_transcriptions)
+    print("Test WER (original): {:.3f}".format(
+         wer_metric.compute(predictions=NBTale_results["asr_str"],
+         references=NBTale_results["ref_str"])))
+    with open(log_file, "a") as f:
+        f.write("NB Tale Test WER (original): {:.3f}\n".format(
+             wer_metric.compute(predictions=NBTale_results["asr_str"],
+             references=NBTale_results["ref_str"])))
+
+    print("STORTINGET")
+    Stortinget_results = dataset_stortinget.map(get_transcriptions)
+    print("Test WER (original): {:.3f}".format(
+         wer_metric.compute(predictions=Stortinget_results["asr_str"],
+         references=Stortinget_results["ref_str"])))
+    with open(log_file, "a") as f:
+        f.write("Stortinget Test WER (original): {:.3f}\n".format(
+             wer_metric.compute(predictions=Stortinget_results["asr_str"],
+             references=Stortinget_results["ref_str"])))
+
+
+
+print("Fine-tuned model testing")
+
+torch.cuda.empty_cache()
+processor = Wav2Vec2ProcessorWithLM.from_pretrained(finetuned_model_dir)
+model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
+wer_metric = load_metric("wer")
+
+print("RUNDKAST")
+finetuned_Rundkast_results = dataset_rundkast.map(get_transcriptions)
+print("Test WER (fine-tuned): {:.3f}".format(
+     wer_metric.compute(predictions=finetuned_Rundkast_results["asr_str"],
+     references=finetuned_Rundkast_results["ref_str"])))
+with open(log_file, "a") as f:
+    f.write("Rundkast Test WER (fine-tuned): {:.3f}\n".format(
+         wer_metric.compute(predictions=finetuned_Rundkast_results["asr_str"],
+         references=finetuned_Rundkast_results["ref_str"])))
+
+print("NB TALE")
+finetuned_NBTale_results = dataset_nbtale.map(get_transcriptions)
+print("Test WER (fine-tuned): {:.3f}".format(
+     wer_metric.compute(predictions=finetuned_NBTale_results["asr_str"],
+     references=finetuned_NBTale_results["ref_str"])))
+with open(log_file, "a") as f:
+    f.write("NB Tale Test WER (fine-tuned): {:.3f}\n".format(
+         wer_metric.compute(predictions=finetuned_NBTale_results["asr_str"],
+         references=finetuned_NBTale_results["ref_str"])))
+
+print("STORTINGET")
+finetuned_Stortinget_results = dataset_stortinget.map(get_transcriptions)
+print("Test WER (fine-tuned): {:.3f}".format(
+     wer_metric.compute(predictions=finetuned_Stortinget_results["asr_str"],
+     references=finetuned_Stortinget_results["ref_str"])))
+with open(log_file, "a") as f:
+    f.write("Stortinget Test WER (fine-tuned): {:.3f}\n".format(
+         wer_metric.compute(predictions=finetuned_Stortinget_results["asr_str"],
+         references=finetuned_Stortinget_results["ref_str"])))
+
 
 
 
@@ -293,92 +380,3 @@ stortinget_dir = ["../../datasets/NordTrans_TUL/test/Stortinget/"]
 #     f.write("dev set WER (original model): {:.3f}\n".format(
 #          wer_metric.compute(predictions=origmodel_results["asr_str"],
 #          references=origmodel_results["ref_str"])))
-
-
-
-print("RUNNING MODELS WITH THE TEST DATA")
-
-print("Loading test datasets")
-
-dataset_rundkast = load_test_dataset(rundkast_dir)
-dataset_rundkast = dataset_rundkast.map(remove_special_characters)
-
-dataset_nbtale = load_test_dataset(nbtale_dir)
-dataset_nbtale = dataset_nbtale.map(remove_special_characters)
-
-dataset_stortinget = load_test_dataset(stortinget_dir)
-dataset_stortinget = dataset_stortinget.map(remove_special_characters)
-
-
-# print("Original model testing")
-# torch.cuda.empty_cache()
-# processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
-# model = Wav2Vec2ForCTC.from_pretrained(model_name)
-# wer_metric = load_metric("wer")
-#
-# print("RUNDKAST")
-# Rundkast_results = dataset_rundkast.map(get_transcriptions)
-# print("Test WER (original): {:.3f}".format(
-#       wer_metric.compute(predictions=Rundkast_results["asr_str"],
-#       references=Rundkast_results["ref_str"])))
-# with open(log_file, "a") as f:
-#     f.write("Rundkast Test WER (original): {:.3f}\n".format(
-#           wer_metric.compute(predictions=Rundkast_results["asr_str"],
-#           references=Rundkast_results["ref_str"])))
-#
-# print("NB TALE")
-# NBTale_results = dataset_nbtale.map(get_transcriptions)
-# print("Test WER (original): {:.3f}".format(
-#      wer_metric.compute(predictions=NBTale_results["asr_str"],
-#      references=NBTale_results["ref_str"])))
-# with open(log_file, "a") as f:
-#     f.write("NB Tale Test WER (original): {:.3f}\n".format(
-#          wer_metric.compute(predictions=NBTale_results["asr_str"],
-#          references=NBTale_results["ref_str"])))
-#
-# print("STORTINGET")
-# Stortinget_results = dataset_stortinget.map(get_transcriptions)
-# print("Test WER (original): {:.3f}".format(
-#      wer_metric.compute(predictions=Stortinget_results["asr_str"],
-#      references=Stortinget_results["ref_str"])))
-# with open(log_file, "a") as f:
-#     f.write("Stortinget Test WER (original): {:.3f}\n".format(
-#          wer_metric.compute(predictions=Stortinget_results["asr_str"],
-#          references=Stortinget_results["ref_str"])))
-
-
-print("Fine-tuned model testing")
-torch.cuda.empty_cache()
-processor = Wav2Vec2ProcessorWithLM.from_pretrained(finetuned_model_dir)
-model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
-wer_metric = load_metric("wer")
-
-print("RUNDKAST")
-finetuned_Rundkast_results = dataset_rundkast.map(get_transcriptions)
-print("Test WER (fine-tuned): {:.3f}".format(
-     wer_metric.compute(predictions=finetuned_Rundkast_results["asr_str"],
-     references=finetuned_Rundkast_results["ref_str"])))
-with open(log_file, "a") as f:
-    f.write("Rundkast Test WER (fine-tuned): {:.3f}\n".format(
-         wer_metric.compute(predictions=finetuned_Rundkast_results["asr_str"],
-         references=finetuned_Rundkast_results["ref_str"])))
-
-print("NB TALE")
-finetuned_NBTale_results = dataset_nbtale.map(get_transcriptions)
-print("Test WER (fine-tuned): {:.3f}".format(
-     wer_metric.compute(predictions=finetuned_NBTale_results["asr_str"],
-     references=finetuned_NBTale_results["ref_str"])))
-with open(log_file, "a") as f:
-    f.write("NB Tale Test WER (fine-tuned): {:.3f}\n".format(
-         wer_metric.compute(predictions=finetuned_NBTale_results["asr_str"],
-         references=finetuned_NBTale_results["ref_str"])))
-
-print("STORTINGET")
-finetuned_Stortinget_results = dataset_stortinget.map(get_transcriptions)
-print("Test WER (fine-tuned): {:.3f}".format(
-     wer_metric.compute(predictions=finetuned_Stortinget_results["asr_str"],
-     references=finetuned_Stortinget_results["ref_str"])))
-with open(log_file, "a") as f:
-    f.write("Stortinget Test WER (fine-tuned): {:.3f}\n".format(
-         wer_metric.compute(predictions=finetuned_Stortinget_results["asr_str"],
-         references=finetuned_Stortinget_results["ref_str"])))

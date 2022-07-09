@@ -153,7 +153,7 @@ print("Loading dataset direct from data dir to pandas dataframe")
 data_dir_list = ["../../datasets/NordTrans_TUL/train/NRK/",
                  "../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25per_30secmax/"]
 
-csv_export_dir = "../../model_ckpts/fine-tuning_wav2vec2_v10/runs/"
+csv_export_dir = "../../model_ckpts/fine-tuning_wav2vec2_v11/runs/"
 
 raw_dataset, dataset = load_dataset_from_files(data_dir_list, csv_export_dir, split_ratio=0.1, csv_export=True)
 
@@ -256,7 +256,7 @@ def compute_metrics(pred):
     return {"wer": wer}
 
 
-repo_local_dir = "../../model_ckpts/fine-tuning_wav2vec2_v10/"
+repo_local_dir = "../../model_ckpts/fine-tuning_wav2vec2_v11/"
 
 # training arguments
 training_args = TrainingArguments(
@@ -266,7 +266,7 @@ training_args = TrainingArguments(
   per_device_eval_batch_size=4,
   eval_accumulation_steps=100,
   evaluation_strategy="steps",
-  num_train_epochs=12,  # orig: 30
+  num_train_epochs=4,  # orig: 30
   fp16=True,  # orig: True
   gradient_checkpointing=True,
   save_steps=500,
@@ -300,8 +300,8 @@ trainer = Trainer(
 # TRAINING
 # ---------------------------------------------------
 
-finetuned_model_dir = "../../fine_tuned_models/wav2vec2_NO_v10/"
-log_dir = "../../model_ckpts/fine-tuning_wav2vec2_v10/runs/"
+finetuned_model_dir = "../../fine_tuned_models/wav2vec2_NO_v11/"
+log_dir = "../../model_ckpts/fine-tuning_wav2vec2_v11/runs/"
 
 torch.cuda.empty_cache()
 print("Training starts")
