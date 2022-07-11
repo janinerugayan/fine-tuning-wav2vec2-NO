@@ -233,10 +233,10 @@ def get_transcriptions_processor_wo_LM(batch):
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--original_model',     type=str)
-parser.add_argument('--fine_tuned_model',   type=str)
-parser.add_argument('--log_file',           type=str)
-parser.add_argument('--get_orig_model_results', type=bool)
+parser.add_argument("--original_model",     type=str)
+parser.add_argument("--fine_tuned_model",   type=str)
+parser.add_argument("--log_file",           type=str)
+parser.add_argument("--get_orig_model_results", type=int)
 args = parser.parse_args()
 
 model_name = args.original_model
@@ -262,7 +262,7 @@ dataset_nbtale = dataset_nbtale.map(remove_special_characters)
 dataset_stortinget = load_test_dataset(stortinget_dir)
 dataset_stortinget = dataset_stortinget.map(remove_special_characters)
 
-if args.get_orig_model_results == True:
+if args.get_orig_model_results == 1:
     print("Original model testing")
     torch.cuda.empty_cache()
     processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
