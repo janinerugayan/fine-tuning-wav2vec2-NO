@@ -1,4 +1,4 @@
-cd ../model_ckpts/
+cd ../../model_ckpts/
 mkdir fine-tuning_wav2vec2_v13
 cd fine-tuning_wav2vec2_v13
 mkdir runs
