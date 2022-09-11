@@ -2,6 +2,14 @@ import datasets
 from dtw import *
 import torch
 
+_CITATION = """\
+@inproceedings{inproceedings,
+    author = {Rugayan, Janine and Svendsen, Torbjørn and Salvi, Giampiero}
+    year = {2022}
+    title = {Semantically Meaningful Metrics for Norwegian ASR Systems}
+}
+"""
+
 _DESCRIPTION = """\
 Aligned Semantic Distance (ASD)
 
@@ -28,7 +36,14 @@ class ASD(datasets.Metric):
     def _info(self):
         return datasets.MetricInfo(
             description=_DESCRIPTION,
-            inputs_description=_KWARGS_DESCRIPTION
+            citation=_CITATION,
+            inputs_description=_KWARGS_DESCRIPTION,
+            features=datasets.Features(
+                {
+                    "reference": datasets.Value("string", id="sequence"),
+                    "hypothesis": datasets.Value("string", id="sequence"),
+                }
+            ),
         )
 
     def _compute(self, model, tokenizer, reference=None, hypothesis=None):
