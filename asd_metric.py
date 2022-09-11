@@ -1,5 +1,6 @@
 import datasets
 from dtw import *
+import torch
 
 _DESCRIPTION = """\
 Aligned Semantic Distance (ASD)

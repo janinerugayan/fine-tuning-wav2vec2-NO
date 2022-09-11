@@ -1,3 +1,5 @@
+import transformers
+from transformers import AutoTokenizer, BertModel
 from transformers import Wav2Vec2CTCTokenizer, Wav2Vec2FeatureExtractor, Wav2Vec2Processor
 from transformers import Wav2Vec2ForCTC, Wav2Vec2ProcessorWithLM, TrainingArguments, Trainer
 from datasets import load_dataset, load_metric, ClassLabel, Audio, Dataset
@@ -249,6 +251,15 @@ class DataCollatorCTCWithPadding:
 data_collator = DataCollatorCTCWithPadding(processor=processor, padding=True)
 
 
+# https://huggingface.co/transformers/main_classes/logging.html
+# verbosity set to print errors only, by default it is set to 30 = error and warnings
+transformers.logging.set_verbosity(40)
+
+# The bare Bert Model transformer outputting raw hidden-states without any specific head on top.
+modelname = 'ltgoslo/norbert'
+model = BertModel.from_pretrained(modelname)
+tokenizer = AutoTokenizer.from_pretrained(modelname)
+
 # wer_metric = load_metric("wer")
 asd_metric = load_metric("asd_metric.py")
 
@@ -266,7 +277,7 @@ def compute_metrics(pred):
 
     # wer = wer_metric.compute(predictions=pred_str, references=label_str)
     # wer = wer_metric.compute(predictions=pred_str.text, references=label_str)
-    asd = asd_metric.compute(predictions=pred_str.text, references=label_str)
+    asd = asd_metric.compute(model, tokenizer, reference=label_str, hypothesis=pred_str.text)
 
     # return {"wer": wer}
     return {"asd": asd}
