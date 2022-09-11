@@ -249,7 +249,8 @@ class DataCollatorCTCWithPadding:
 data_collator = DataCollatorCTCWithPadding(processor=processor, padding=True)
 
 
-wer_metric = load_metric("wer")
+# wer_metric = load_metric("wer")
+asd_metric = load_metric("asd_metric.py")
 
 def compute_metrics(pred):
     pred_logits = pred.predictions
@@ -264,9 +265,11 @@ def compute_metrics(pred):
     # label_str = processor.batch_decode(pred.label_ids)
 
     # wer = wer_metric.compute(predictions=pred_str, references=label_str)
-    wer = wer_metric.compute(predictions=pred_str.text, references=label_str)
+    # wer = wer_metric.compute(predictions=pred_str.text, references=label_str)
+    asd = asd_metric.compute(predictions=pred_str.text, references=label_str)
 
-    return {"wer": wer}
+    # return {"wer": wer}
+    return {"asd": asd}
 
 
 repo_local_dir = "../../model_ckpts/" + args.fine_tuned_model_ver + "/"
