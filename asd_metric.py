@@ -27,7 +27,7 @@ Returns:
 class ASD(datasets.Metric):
     def _info(self):
         return datasets.MetricInfo(
-            description=_DESCRIPTION
+            description=_DESCRIPTION,
             inputs_description=_KWARGS_DESCRIPTION
         )
 
