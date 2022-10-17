@@ -1,3 +1,5 @@
+import collections
+collections.Container = collections.abc.Container
 import transformers
 from transformers import AutoTokenizer, BertModel
 from transformers import Wav2Vec2CTCTokenizer, Wav2Vec2FeatureExtractor, Wav2Vec2Processor
