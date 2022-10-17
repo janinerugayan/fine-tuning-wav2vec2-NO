@@ -260,9 +260,9 @@ data_collator = DataCollatorCTCWithPadding(processor=processor, padding=True)
 transformers.logging.set_verbosity(40)
 
 # The bare Bert Model transformer outputting raw hidden-states without any specific head on top.
-modelname = 'ltgoslo/norbert'
-model = BertModel.from_pretrained(modelname)
-tokenizer = AutoTokenizer.from_pretrained(modelname)
+metric_modelname = 'ltgoslo/norbert'
+metric_model = BertModel.from_pretrained(metric_modelname)
+metric_tokenizer = AutoTokenizer.from_pretrained(metric_modelname)
 
 # wer_metric = load_metric("wer")
 asd_metric = load_metric("asd_metric.py")
@@ -281,7 +281,7 @@ def compute_metrics(pred):
 
     # wer = wer_metric.compute(predictions=pred_str, references=label_str)
     # wer = wer_metric.compute(predictions=pred_str.text, references=label_str) # worked in fine-tuning versions 1 to 14 (wer metric)
-    asd = asd_metric.compute(model, tokenizer, reference_batch=label_str, hypothesis_batch=pred_str.text)
+    asd = asd_metric.compute(metric_model, metric_tokenizer, reference_batch=label_str, hypothesis_batch=pred_str.text)
 
     # return {"wer": wer}
     return {"asd": asd}
