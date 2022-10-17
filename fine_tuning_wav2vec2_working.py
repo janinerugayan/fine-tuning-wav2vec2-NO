@@ -1,5 +1,7 @@
 import collections
-collections.Container = collections.abc.Container
+if not hasattr(collections, "Container"):
+    import collections.abc
+    collections.Container = collections.abc.Container
 import transformers
 from transformers import AutoTokenizer, BertModel
 from transformers import Wav2Vec2CTCTokenizer, Wav2Vec2FeatureExtractor, Wav2Vec2Processor
@@ -255,15 +257,15 @@ data_collator = DataCollatorCTCWithPadding(processor=processor, padding=True)
 
 # https://huggingface.co/transformers/main_classes/logging.html
 # verbosity set to print errors only, by default it is set to 30 = error and warnings
-# transformers.logging.set_verbosity(40)
+transformers.logging.set_verbosity(40)
 
 # The bare Bert Model transformer outputting raw hidden-states without any specific head on top.
-# modelname = 'ltgoslo/norbert'
-# model = BertModel.from_pretrained(modelname)
-# tokenizer = AutoTokenizer.from_pretrained(modelname)
+modelname = 'ltgoslo/norbert'
+model = BertModel.from_pretrained(modelname)
+tokenizer = AutoTokenizer.from_pretrained(modelname)
 
-wer_metric = load_metric("wer")
-# asd_metric = load_metric("asd_metric.py")
+# wer_metric = load_metric("wer")
+asd_metric = load_metric("asd_metric.py")
 
 def compute_metrics(pred):
     pred_logits = pred.predictions
@@ -278,11 +280,11 @@ def compute_metrics(pred):
     # label_str = processor.batch_decode(pred.label_ids)
 
     # wer = wer_metric.compute(predictions=pred_str, references=label_str)
-    wer = wer_metric.compute(predictions=pred_str.text, references=label_str) # worked in fine-tuning versions 1 to 14 (wer metric)
-    # asd = asd_metric.compute(model, tokenizer, reference_batch=label_str, hypothesis_batch=pred_str.text)
+    # wer = wer_metric.compute(predictions=pred_str.text, references=label_str) # worked in fine-tuning versions 1 to 14 (wer metric)
+    asd = asd_metric.compute(model, tokenizer, reference_batch=label_str, hypothesis_batch=pred_str.text)
 
-    return {"wer": wer}
-    # return {"asd": asd}
+    # return {"wer": wer}
+    return {"asd": asd}
 
 
 repo_local_dir = "../../model_ckpts/" + args.fine_tuned_model_ver + "/"
