@@ -46,7 +46,7 @@ class ASD(datasets.Metric):
             ),
         )
 
-    def _compute(self, model, tokenizer, reference=None, hypothesis=None):
+    def _compute(self, model=None, tokenizer=None, reference=None, hypothesis=None):
         # asd_score = 0
         # num_ref_hyp_pairs = 0
         # for reference, hypothesis in zip(reference_batch, hypothesis_batch):
