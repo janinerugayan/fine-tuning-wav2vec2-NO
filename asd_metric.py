@@ -1,6 +1,7 @@
 import datasets
 from dtw import *
 import torch
+from scipy.spatial import distance
 
 _CITATION = """\
 @inproceedings{inproceedings,
