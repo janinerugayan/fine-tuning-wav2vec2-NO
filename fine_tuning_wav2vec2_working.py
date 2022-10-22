@@ -336,8 +336,8 @@ log_dir = "../../model_ckpts/" + args.fine_tuned_model_ver + "/runs/"
 
 torch.cuda.empty_cache()
 print("Training starts")
-trainer.train()
-# trainer.train("../../model_ckpts/fine-tuning_wav2vec2_v8/checkpoint-107500")
+# trainer.train()
+trainer.train("../../model_ckpts/fine-tuning_wav2vec2_v15/checkpoint-30000")
 
 log_history_fn = os.path.join(log_dir, "log_history.txt")
 with open(log_history_fn, "w") as f:
