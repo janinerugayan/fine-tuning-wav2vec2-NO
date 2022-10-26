@@ -279,7 +279,7 @@ if args.get_orig_model_results == 1:
     test_score = metric.compute(predictions=Rundkast_results["asr_str"], references=Rundkast_results["ref_str"])
     print("Test WER (original): {:.3f}".format(test_score))
     with open(log_file, "a") as f:
-        f.write("Rundkast Test WER (original): {:.3f}\n".format(test_score)
+        f.write("Rundkast Test WER (original): {:.3f}\n".format(test_score))
 
     print("NB TALE")
     NBTale_results = dataset_nbtale.map(get_transcriptions)
