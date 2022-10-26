@@ -266,6 +266,9 @@ dataset_stortinget = dataset_stortinget.map(remove_special_characters)
 
 metric = load_metric(metric_to_use)
 
+print(f"Metric used: {metric_to_use}")
+with open(log_file, "a") as f:
+    f.write("Metric used: {}\n".format(metric_to_use))
 
 if args.get_orig_model_results == 1:
 
@@ -277,23 +280,23 @@ if args.get_orig_model_results == 1:
     print("RUNDKAST")
     Rundkast_results = dataset_rundkast.map(get_transcriptions)
     test_score = metric.compute(predictions=Rundkast_results["asr_str"], references=Rundkast_results["ref_str"])
-    print("Test WER (original): {:.3f}".format(test_score))
+    print("Test Score (original): {:.3f}".format(test_score))
     with open(log_file, "a") as f:
-        f.write("Rundkast Test WER (original): {:.3f}\n".format(test_score))
+        f.write("Rundkast Test Score (original): {:.3f}\n".format(test_score))
 
     print("NB TALE")
     NBTale_results = dataset_nbtale.map(get_transcriptions)
     test_score = metric.compute(predictions=NBTale_results["asr_str"], references=NBTale_results["ref_str"])
-    print("Test WER (original): {:.3f}".format(test_score))
+    print("Test Score (original): {:.3f}".format(test_score))
     with open(log_file, "a") as f:
-        f.write("NB Tale Test WER (original): {:.3f}\n".format(test_score))
+        f.write("NB Tale Test Score (original): {:.3f}\n".format(test_score))
 
     print("STORTINGET")
     Stortinget_results = dataset_stortinget.map(get_transcriptions)
     test_score = metric.compute(predictions=Stortinget_results["asr_str"], references=Stortinget_results["ref_str"])
-    print("Test WER (original): {:.3f}".format(test_score))
+    print("Test Score (original): {:.3f}".format(test_score))
     with open(log_file, "a") as f:
-        f.write("Stortinget Test WER (original): {:.3f}\n".format(test_score))
+        f.write("Stortinget Test Score (original): {:.3f}\n".format(test_score))
 
 
 
@@ -305,23 +308,23 @@ model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
 print("RUNDKAST")
 finetuned_Rundkast_results = dataset_rundkast.map(get_transcriptions)
 test_score = metric.compute(predictions=finetuned_Rundkast_results["asr_str"], references=finetuned_Rundkast_results["ref_str"])
-print("Test WER (fine-tuned): {:.3f}".format(test_score))
+print("Test Score (fine-tuned): {:.3f}".format(test_score))
 with open(log_file, "a") as f:
-    f.write("Rundkast Test WER (fine-tuned): {:.3f}\n".format(test_score))
+    f.write("Rundkast Test Score (fine-tuned): {:.3f}\n".format(test_score))
 
 print("NB TALE")
 finetuned_NBTale_results = dataset_nbtale.map(get_transcriptions)
 test_score = metric.compute(predictions=finetuned_NBTale_results["asr_str"], references=finetuned_NBTale_results["ref_str"])
-print("Test WER (fine-tuned): {:.3f}".format(test_score))
+print("Test Score (fine-tuned): {:.3f}".format(test_score))
 with open(log_file, "a") as f:
-    f.write("NB Tale Test WER (fine-tuned): {:.3f}\n".format(test_score))
+    f.write("NB Tale Test Score (fine-tuned): {:.3f}\n".format(test_score))
 
 print("STORTINGET")
 finetuned_Stortinget_results = dataset_stortinget.map(get_transcriptions)
 test_score = metric.compute(predictions=finetuned_Stortinget_results["asr_str"], references=finetuned_Stortinget_results["ref_str"])
-print("Test WER (fine-tuned): {:.3f}".format(test_score))
+print("Test Score (fine-tuned): {:.3f}".format(test_score))
 with open(log_file, "a") as f:
-    f.write("Stortinget Test WER (fine-tuned): {:.3f}\n".format(test_score))
+    f.write("Stortinget Test Score (fine-tuned): {:.3f}\n".format(test_score))
 
 
 
