@@ -1,5 +1,6 @@
 import transformers
 from transformers import Wav2Vec2ForCTC, Wav2Vec2ProcessorWithLM, Wav2Vec2Processor, Wav2Vec2ProcessorWithLM
+from transformers import AutoTokenizer, BertModel
 from datasets import load_dataset, load_metric, ClassLabel, Audio, Dataset
 import pandas as pd
 import math
