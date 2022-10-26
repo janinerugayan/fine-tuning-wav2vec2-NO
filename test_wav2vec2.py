@@ -267,9 +267,11 @@ dataset_stortinget = dataset_stortinget.map(remove_special_characters)
 
 metric = load_metric(metric_to_use)
 
-metric_modelname = 'ltgoslo/norbert'
-metric_model = BertModel.from_pretrained(metric_modelname)
-metric_tokenizer = AutoTokenizer.from_pretrained(metric_modelname)
+if metric_to_use == "asd_metric.py":
+    transformers.logging.set_verbosity(40)
+    metric_modelname = 'ltgoslo/norbert'
+    metric_model = BertModel.from_pretrained(metric_modelname)
+    metric_tokenizer = AutoTokenizer.from_pretrained(metric_modelname)
 
 print(f"Metric used: {metric_to_use}")
 with open(log_file, "a") as f:
