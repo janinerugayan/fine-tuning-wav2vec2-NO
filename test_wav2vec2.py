@@ -297,7 +297,6 @@ if args.get_orig_model_results == 1:
     Rundkast_results = dataset_rundkast.map(get_transcriptions)
     if extract_transcriptions == 1:
         Rundkast_results.to_csv("./logs/Rundkast_results_" + original_model_name + ".csv" )
-        exit()
     if metric_to_use == "asd_metric.py":
         test_score = metric.compute(model=metric_model, tokenizer=metric_tokenizer,
                            reference=Rundkast_results["ref_str"], hypothesis=Rundkast_results["asr_str"])
@@ -309,8 +308,8 @@ if args.get_orig_model_results == 1:
 
     print("NB TALE")
     NBTale_results = dataset_nbtale.map(get_transcriptions)
-    # if extract_transcriptions == 1:
-
+    if extract_transcriptions == 1:
+        NBTale_results.to_csv("./logs/NBTale_results_" + original_model_name + ".csv" )
     if metric_to_use == "asd_metric.py":
         test_score = metric.compute(model=metric_model, tokenizer=metric_tokenizer,
                            reference=NBTale_results["ref_str"], hypothesis=NBTale_results["asr_str"])
@@ -322,8 +321,8 @@ if args.get_orig_model_results == 1:
 
     print("STORTINGET")
     Stortinget_results = dataset_stortinget.map(get_transcriptions)
-    # if extract_transcriptions == 1:
-
+    if extract_transcriptions == 1:
+        Stortinget_results.to_csv("./logs/Stortinget_results_" + original_model_name + ".csv" )
     if metric_to_use == "asd_metric.py":
         test_score = metric.compute(model=metric_model, tokenizer=metric_tokenizer,
                            reference=Stortinget_results["ref_str"], hypothesis=Stortinget_results["asr_str"])
@@ -343,8 +342,8 @@ model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
 
 print("RUNDKAST")
 finetuned_Rundkast_results = dataset_rundkast.map(get_transcriptions)
-# if extract_transcriptions == 1:
-
+if extract_transcriptions == 1:
+    finetuned_Rundkast_results.to_csv("./logs/finetuned_Rundkast_results_" + finetuned_model_name + ".csv" )
 if metric_to_use == "asd_metric.py":
     test_score = metric.compute(model=metric_model, tokenizer=metric_tokenizer,
                        reference=finetuned_Rundkast_results["ref_str"], hypothesis=finetuned_Rundkast_results["asr_str"])
@@ -356,8 +355,8 @@ with open(log_file, "a") as f:
 
 print("NB TALE")
 finetuned_NBTale_results = dataset_nbtale.map(get_transcriptions)
-# if extract_transcriptions == 1:
-
+if extract_transcriptions == 1:
+    finetuned_NBTale_results.to_csv("./logs/finetuned_NBTale_results_" + finetuned_model_name + ".csv" )
 if metric_to_use == "asd_metric.py":
     test_score = metric.compute(model=metric_model, tokenizer=metric_tokenizer,
                        reference=finetuned_NBTale_results["ref_str"], hypothesis=finetuned_NBTale_results["asr_str"])
@@ -369,8 +368,8 @@ with open(log_file, "a") as f:
 
 print("STORTINGET")
 finetuned_Stortinget_results = dataset_stortinget.map(get_transcriptions)
-# if extract_transcriptions == 1:
-
+if extract_transcriptions == 1:
+    finetuned_Stortinget_results.to_csv("./logs/finetuned_Stortinget_results_" + finetuned_model_name + ".csv" )
 if metric_to_use == "asd_metric.py":
     test_score = metric.compute(model=metric_model, tokenizer=metric_tokenizer,
                        reference=finetuned_Stortinget_results["ref_str"], hypothesis=finetuned_Stortinget_results["asr_str"])
