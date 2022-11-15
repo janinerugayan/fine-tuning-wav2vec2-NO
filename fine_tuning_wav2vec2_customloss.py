@@ -294,11 +294,12 @@ repo_local_dir = "../../model_ckpts/" + args.fine_tuned_model_ver + "/"
 training_args = TrainingArguments(
   output_dir=repo_local_dir,
   group_by_length=True,
-  per_device_train_batch_size=8,  # orig: 4
-  per_device_eval_batch_size=8,  # orig: 4
+  per_device_train_batch_size=1,  # orig: 4
+  per_device_eval_batch_size=1,  # orig: 4
   eval_accumulation_steps=100,
   evaluation_strategy="steps",
-  num_train_epochs=args.num_train_epochs,  # orig: 30
+  # num_train_epochs=args.num_train_epochs,  # orig: 30
+  max_steps = 100,  # only for development stage
   fp16=True,  # orig: True
   gradient_checkpointing=True,
   save_steps=500,
@@ -338,7 +339,11 @@ if args.use_asd_metric == 1:
             labels = None
         outputs = model(**inputs)
 
+        print(f"inputs: {type(inputs)}")
+        print(inputs)
+        print(f"labels: {type(labels)}")
         print(labels)
+        print(f"outputs: {type(outputs)}")
         print(outputs)
 
         # pred_logits = pred.predictions
