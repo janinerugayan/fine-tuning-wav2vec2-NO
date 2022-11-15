@@ -312,7 +312,7 @@ training_args = TrainingArguments(
   push_to_hub=False,
   seed=42,
   data_seed=42,
-  report_to="wandb"
+  # report_to="wandb"
 )
 
 trainer = Trainer(
