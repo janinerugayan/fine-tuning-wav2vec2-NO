@@ -258,34 +258,14 @@ class DataCollatorCTCWithPadding:
 data_collator = DataCollatorCTCWithPadding(processor=processor, padding=True)
 
 
-# if args.use_asd_metric == 1:
-#     # https://huggingface.co/transformers/main_classes/logging.html
-#     # verbosity set to print errors only, by default it is set to 30 = error and warnings
-#     transformers.logging.set_verbosity(40)
-#     # The bare Bert Model transformer outputting raw hidden-states without any specific head on top.
-#     metric_modelname = 'ltgoslo/norbert'
-#     metric_model = BertModel.from_pretrained(metric_modelname)
-#     metric_tokenizer = AutoTokenizer.from_pretrained(metric_modelname)
-#
-# # options for trainer compute_metrics
-# if args.use_asd_metric == 1:
-#     asd_metric = load_metric("asd_metric.py")
-#     def compute_metrics(pred):
-#         pred_logits = pred.predictions
-#         pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
-#         pred_str = processor.batch_decode(pred_logits)
-#         label_str = processor_woLM.batch_decode(pred.label_ids, group_tokens=False)  # we do not want to group tokens when computing the metrics
-#         asd = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=label_str, hypothesis=pred_str.text)
-#         return {"asd": asd}
-# elif args.use_asd_metric == 0:
-#     wer_metric = load_metric("wer")
-#     def compute_metrics(pred):
-#         pred_logits = pred.predictions
-#         pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
-#         pred_str = processor.batch_decode(pred_logits)
-#         label_str = processor_woLM.batch_decode(pred.label_ids, group_tokens=False)  # we do not want to group tokens when computing the metrics
-#         wer = wer_metric.compute(predictions=pred_str.text, references=label_str) # worked in fine-tuning versions 1 to 14 (wer metric)
-#         return {"wer": wer}
+wer_metric = load_metric("wer")
+def compute_metrics(pred):
+    pred_logits = pred.predictions
+    pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
+    pred_str = processor.batch_decode(pred_logits)
+    label_str = processor_woLM.batch_decode(pred.label_ids, group_tokens=False)  # we do not want to group tokens when computing the metrics
+    wer = wer_metric.compute(predictions=pred_str.text, references=label_str) # worked in fine-tuning versions 1 to 14 (wer metric)
+    return {"wer": wer}
 
 
 repo_local_dir = "../../model_ckpts/" + args.fine_tuned_model_ver + "/"
