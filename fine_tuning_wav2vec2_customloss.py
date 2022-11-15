@@ -25,7 +25,7 @@ import argparse
 import types
 
 
-wandb.init(project="fine-tuning-wav2vec2-NO", entity="janinerugayan")
+# wandb.init(project="fine-tuning-wav2vec2-NO", entity="janinerugayan")
 
 # https://huggingface.co/transformers/main_classes/logging.html
 # verbosity set to print errors only, by default it is set to 30 = error and warnings
