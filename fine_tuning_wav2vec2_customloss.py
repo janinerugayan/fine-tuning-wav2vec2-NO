@@ -331,8 +331,8 @@ if args.use_asd_metric == 1:
         outputs = model(**inputs)
 
         # asd metric:
-        pred_logits = outputs.pop("logits")
-        labels = inputs.pop("labels")
+        pred_logits = outputs["logits"]
+        labels = inputs["labels"]
         pred_str = processor.batch_decode(pred_logits)
         label_str = processor_woLM.batch_decode(labels, group_tokens=False)  # we do not want to group tokens when computing the metrics
         asd_score = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=label_str, hypothesis=pred_str.text)
