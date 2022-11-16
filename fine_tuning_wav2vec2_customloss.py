@@ -26,11 +26,6 @@ import types
 # from aulus_notification_bot import NotificationBot
 
 
-# wandb.init(project="fine-tuning-wav2vec2-NO", entity="janinerugayan")
-
-# https://huggingface.co/transformers/main_classes/logging.html
-# verbosity set to print errors only, by default it is set to 30 = error and warnings
-# transformers.logging.set_verbosity(40)
 
 
 chars_to_ignore_regex = '[\,\?\.\!\-\;\:\"\*]'
@@ -122,7 +117,7 @@ def load_dataset_from_files(data_dir_list:list[str], csv_export_dir:str, split_r
 
 
 # ---------------------------------------------------
-# LOAD PRETRAINED MODEL
+# ARGUMENTS & INTIALIZATIONS
 # ---------------------------------------------------
 
 parser=argparse.ArgumentParser()
@@ -134,6 +129,9 @@ parser.add_argument("--learning_rate",          type=float)
 parser.add_argument("--use_asd_metric",         type=int)
 args = parser.parse_args()
 
+# wandb.init(project="fine-tuning-wav2vec2-NO", entity="janinerugayan")
+
+torch.multiprocessing.set_start_method('spawn')
 
 
 
@@ -157,7 +155,6 @@ model = Wav2Vec2ForCTC.from_pretrained(
 )
 # feature extraction does not need further fine-tuning
 model.freeze_feature_encoder()
-
 
 
 
