@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 import wandb
 import argparse
+from aulus_notification_bot import NotificationBot
 
 
 wandb.init(project="fine-tuning-wav2vec2-NO", entity="janinerugayan")
@@ -347,6 +348,10 @@ print("Saving fine-tuned model")
 model.save_pretrained(save_directory=finetuned_model_dir)
 processor.save_pretrained(save_directory=finetuned_model_dir)
 
+
+# NOTIFICATION BOT
+notify_me = NotificationBot()
+notify_me.notify(args.fine_tuned_model_ver)
 
 
 

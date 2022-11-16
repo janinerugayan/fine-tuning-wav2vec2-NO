@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional, Union
 import wandb
 import argparse
 import types
+from aulus_notification_bot import NotificationBot
 
 
 # wandb.init(project="fine-tuning-wav2vec2-NO", entity="janinerugayan")
@@ -319,18 +320,12 @@ if args.use_asd_metric == 1:
             labels = None
         outputs = model(**inputs)
 
-        print(f"inputs: {type(inputs)}")
-        print(inputs)
-        print(f"labels: {type(labels)}")
-        print(labels)
-        print(f"outputs: {type(outputs)}")
-        print(outputs)
-
-        # pred_logits = pred.predictions
-        # pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
-        # pred_str = processor.batch_decode(pred_logits)
-        # label_str = processor_woLM.batch_decode(pred.label_ids, group_tokens=False)  # we do not want to group tokens when computing the metrics
-        # asd = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=label_str, hypothesis=pred_str.text)
+        # asd metric:
+        pred_logits = outputs.pop("logits")
+        labels = inputs.pop("labels")
+        pred_str = processor.batch_decode(pred_logits)
+        label_str = processor_woLM.batch_decode(labels, group_tokens=False)  # we do not want to group tokens when computing the metrics
+        asd_score = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=label_str, hypothesis=pred_str.text)
 
         # Save past state if it exists
         # TODO: this needs to be fixed and made cleaner later.
@@ -350,6 +345,9 @@ if args.use_asd_metric == 1:
                 )
             # We don't use .loss here since the model may return tuples instead of ModelOutput.
             loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
+
+        # add asd score to loss
+        loss += (1 - asd_score)
 
         return (loss, outputs) if return_outputs else loss
 
@@ -380,6 +378,10 @@ print("Saving fine-tuned model")
 model.save_pretrained(save_directory=finetuned_model_dir)
 processor.save_pretrained(save_directory=finetuned_model_dir)
 
+
+# NOTIFICATION BOT
+# notify_me = NotificationBot()
+# notify_me.notify(args.fine_tuned_model_ver)
 
 
 
