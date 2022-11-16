@@ -308,6 +308,16 @@ trainer = Trainer(
 
 
 if args.use_asd_metric == 1:
+    # https://huggingface.co/transformers/main_classes/logging.html
+    # verbosity set to print errors only, by default it is set to 30 = error and warnings
+    transformers.logging.set_verbosity(40)
+    # The bare Bert Model transformer outputting raw hidden-states without any specific head on top.
+    metric_modelname = 'ltgoslo/norbert'
+    metric_model = BertModel.from_pretrained(metric_modelname)
+    metric_tokenizer = AutoTokenizer.from_pretrained(metric_modelname)
+
+    asd_metric = load_metric("asd_metric.py")
+
     # custom compute_loss
     def custom_compute_loss(self, model, inputs, return_outputs=False):
         """
