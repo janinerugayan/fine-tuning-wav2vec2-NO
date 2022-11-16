@@ -327,8 +327,11 @@ if args.use_asd_metric == 1:
             labels = None
         outputs = model(**inputs)
 
+        print(outputs)
+
         # asd metric:
         pred_logits = outputs["logits"].detach()
+        print(pred_logits)
         labels = inputs["labels"]
         pred_str = processor.batch_decode(pred_logits)
         label_str = processor_woLM.batch_decode(labels, group_tokens=False)  # we do not want to group tokens when computing the metrics
