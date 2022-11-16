@@ -329,13 +329,10 @@ if args.use_asd_metric == 1:
 
         # asd metric:
         output_logits = outputs["logits"].detach()
-        preds_gatherer.add_arrays(self._gather_and_numpify(output_logits, "eval_preds"))
-        preds = preds_gatherer.finalize()
-        pred_logits = preds.predictions
+        pred_logits = self._gather_and_numpify(output_logits, "eval_preds")
         pred_str = processor.batch_decode(pred_logits)
-        preds.label_ids[preds.label_ids == -100] = processor.tokenizer.pad_token_id
-        # labels = inputs["labels"]
-        label_str = processor_woLM.batch_decode(preds.label_ids, group_tokens=False)  # we do not want to group tokens when computing the metrics
+        labels = inputs["labels"]
+        label_str = processor_woLM.batch_decode(labels, group_tokens=False)  # we do not want to group tokens when computing the metrics
         asd_score = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=label_str, hypothesis=pred_str.text)
 
         # Save past state if it exists
