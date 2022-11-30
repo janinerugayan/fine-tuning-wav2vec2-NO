@@ -131,7 +131,7 @@ args = parser.parse_args()
 
 wandb.init(project="fine-tuning-wav2vec2-NO_customLoss", entity="janinerugayan")
 
-torch.multiprocessing.set_start_method('spawn')
+# torch.multiprocessing.set_start_method('spawn')
 
 
 
