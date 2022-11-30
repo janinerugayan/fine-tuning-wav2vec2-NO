@@ -268,7 +268,69 @@ def compute_metrics(pred):
     return {"wer": wer}
 
 
+if args.use_asd_metric == 1:
+    # https://huggingface.co/transformers/main_classes/logging.html
+    # verbosity set to print errors only, by default it is set to 30 = error and warnings
+    transformers.logging.set_verbosity(40)
+    # The bare Bert Model transformer outputting raw hidden-states without any specific head on top.
+    metric_modelname = 'ltgoslo/norbert'
+    metric_model = BertModel.from_pretrained(metric_modelname)
+    metric_tokenizer = AutoTokenizer.from_pretrained(metric_modelname)
+
+    asd_metric = load_metric("asd_metric.py")
+
+    class CustomTrainer(Trainer):
+        def custom_compute_loss(self, model, inputs, return_outputs=False):
+            """
+            How the loss is computed by Trainer. By default, all models return the loss in the first element.
+            Subclass and override for custom behavior.
+            """
+            if self.label_smoother is not None and "labels" in inputs:
+                labels = inputs.pop("labels")
+            else:
+                labels = None
+            outputs = model(**inputs)
+
+            # asd metric:
+            output_logits = outputs["logits"].detach()
+            pred_logits = self._gather_and_numpify(output_logits, "eval_preds")
+            pred_str = processor.batch_decode(pred_logits)
+            labels = inputs["labels"]
+            label_str = processor_woLM.batch_decode(labels, group_tokens=False)  # we do not want to group tokens when computing the metrics
+            asd_score = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=label_str, hypothesis=pred_str.text)
+
+            # Save past state if it exists
+            # TODO: this needs to be fixed and made cleaner later.
+            if self.args.past_index >= 0:
+                self._past = outputs[self.args.past_index]
+
+            if labels is not None:
+                if unwrap_model(model)._get_name() in MODEL_FOR_CAUSAL_LM_MAPPING_NAMES.values():
+                    loss = self.label_smoother(outputs, labels, shift_labels=True)
+                else:
+                    loss = self.label_smoother(outputs, labels)
+            else:
+                if isinstance(outputs, dict) and "loss" not in outputs:
+                    raise ValueError(
+                        "The model did not return a loss from the inputs, only the following keys: "
+                        f"{','.join(outputs.keys())}. For reference, the inputs it received are {','.join(inputs.keys())}."
+                    )
+                # We don't use .loss here since the model may return tuples instead of ModelOutput.
+                loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
+
+            # add asd score to loss
+            loss += (1 - asd_score)
+
+            return (loss, outputs) if return_outputs else loss
+
+
+    # trainer.compute_loss = types.MethodType(custom_compute_loss, trainer)
+
+
+    
+
 repo_local_dir = "../../model_ckpts/" + args.fine_tuned_model_ver + "/"
+
 
 # training arguments
 training_args = TrainingArguments(
@@ -295,7 +357,7 @@ training_args = TrainingArguments(
   # report_to="wandb"
 )
 
-trainer = Trainer(
+trainer = CustomTrainer(
     model=model,
     data_collator=data_collator,
     args=training_args,
@@ -304,66 +366,6 @@ trainer = Trainer(
     eval_dataset=dataset["test"],
     tokenizer=processor.feature_extractor,
 )
-
-
-if args.use_asd_metric == 1:
-    # https://huggingface.co/transformers/main_classes/logging.html
-    # verbosity set to print errors only, by default it is set to 30 = error and warnings
-    transformers.logging.set_verbosity(40)
-    # The bare Bert Model transformer outputting raw hidden-states without any specific head on top.
-    metric_modelname = 'ltgoslo/norbert'
-    metric_model = BertModel.from_pretrained(metric_modelname)
-    metric_tokenizer = AutoTokenizer.from_pretrained(metric_modelname)
-
-    asd_metric = load_metric("asd_metric.py")
-
-    # custom compute_loss
-    def custom_compute_loss(self, model, inputs, return_outputs=False):
-        """
-        How the loss is computed by Trainer. By default, all models return the loss in the first element.
-        Subclass and override for custom behavior.
-        """
-        if self.label_smoother is not None and "labels" in inputs:
-            labels = inputs.pop("labels")
-        else:
-            labels = None
-        outputs = model(**inputs)
-
-        # asd metric:
-        output_logits = outputs["logits"].detach()
-        pred_logits = self._gather_and_numpify(output_logits, "eval_preds")
-        pred_str = processor.batch_decode(pred_logits)
-        labels = inputs["labels"]
-        label_str = processor_woLM.batch_decode(labels, group_tokens=False)  # we do not want to group tokens when computing the metrics
-        asd_score = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=label_str, hypothesis=pred_str.text)
-
-        # Save past state if it exists
-        # TODO: this needs to be fixed and made cleaner later.
-        if self.args.past_index >= 0:
-            self._past = outputs[self.args.past_index]
-
-        if labels is not None:
-            if unwrap_model(model)._get_name() in MODEL_FOR_CAUSAL_LM_MAPPING_NAMES.values():
-                loss = self.label_smoother(outputs, labels, shift_labels=True)
-            else:
-                loss = self.label_smoother(outputs, labels)
-        else:
-            if isinstance(outputs, dict) and "loss" not in outputs:
-                raise ValueError(
-                    "The model did not return a loss from the inputs, only the following keys: "
-                    f"{','.join(outputs.keys())}. For reference, the inputs it received are {','.join(inputs.keys())}."
-                )
-            # We don't use .loss here since the model may return tuples instead of ModelOutput.
-            loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
-
-        # add asd score to loss
-        loss += (1 - asd_score)
-
-        return (loss, outputs) if return_outputs else loss
-
-
-    trainer.compute_loss = types.MethodType(custom_compute_loss, trainer)
-
 
 
 
