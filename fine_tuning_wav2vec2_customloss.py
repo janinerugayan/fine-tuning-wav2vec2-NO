@@ -169,11 +169,11 @@ print("Loading dataset direct from data dir to pandas dataframe")
 #                  "../../datasets/NordTrans_TUL/train/NRK/",
 #                  "../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25per_30secmax/"]
 
-# data_dir_list = ["../../datasets/NordTrans_TUL/train_small/Stortinget/",
-#                  "../../datasets/NordTrans_TUL/train_small/NRK/",
-#                  "../../datasets/NordTrans_TUL/train_small/Rundkast/"]
+data_dir_list = ["../../datasets/NordTrans_TUL/train_small/Stortinget/",
+                 "../../datasets/NordTrans_TUL/train_small/NRK/",
+                 "../../datasets/NordTrans_TUL/train_small/Rundkast/"]
 
-data_dir_list = ["../../datasets/NordTrans_TUL/train_small/Rundkast/"]
+# data_dir_list = ["../../datasets/NordTrans_TUL/train_small/Rundkast/"]
 
 csv_export_dir = "../../model_ckpts/" + args.fine_tuned_model_ver + "/runs/"
 
@@ -340,8 +340,7 @@ training_args = TrainingArguments(
   per_device_eval_batch_size=1,  # orig: 4
   eval_accumulation_steps=100,
   evaluation_strategy="steps",
-  # num_train_epochs=args.num_train_epochs,  # orig: 30
-  max_steps = 100,  # only for development stage
+  num_train_epochs=args.num_train_epochs,  # orig: 30
   fp16=True,  # orig: True
   gradient_checkpointing=True,
   save_steps=500,
@@ -354,7 +353,7 @@ training_args = TrainingArguments(
   push_to_hub=False,
   seed=42,
   data_seed=42,
-  # report_to="wandb"
+  report_to="wandb"
 )
 
 trainer = CustomTrainer(
