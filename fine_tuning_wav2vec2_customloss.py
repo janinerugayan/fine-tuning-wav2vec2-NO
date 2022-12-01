@@ -280,6 +280,9 @@ if args.use_asd_metric == 1:
     asd_metric = load_metric("asd_metric.py")
 
     class CustomTrainer(Trainer):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            
         def compute_loss(self, model, inputs, return_outputs=False):
             """
             How the loss is computed by Trainer. By default, all models return the loss in the first element.
