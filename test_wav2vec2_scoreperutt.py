@@ -204,6 +204,7 @@ def get_transcriptions_with_score(batch):
     transcription = processor.batch_decode(logits.detach().numpy()).text
     batch["asr_str"] = transcription[0]
     batch["ref_str"] = reference_text
+    print(reference_text, transcription[0])
     batch["wer"] = wer_metric.compute(predictions=batch["asr_str"], references=batch["ref_str"])
     batch["asd"] = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=batch["ref_str"], hypothesis=batch["asr_str"])
     return batch
