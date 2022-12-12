@@ -308,29 +308,41 @@ if args.get_orig_model_results == 1:
 
 
 
-# print("Fine-tuned model testing")
-# torch.cuda.empty_cache()
-# processor = Wav2Vec2ProcessorWithLM.from_pretrained(finetuned_model_dir)
-# model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
+print("Fine-tuned model testing")
+torch.cuda.empty_cache()
+processor = Wav2Vec2ProcessorWithLM.from_pretrained(finetuned_model_dir)
+model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
 
-# print("RUNDKAST")
-# finetuned_Rundkast_results = dataset_rundkast.map(get_transcriptions_with_score)
-# finetuned_Rundkast_results.to_csv("./logs/finetuned_Rundkast_results_" + finetuned_model_name + ".csv" )
-# print("Test Score (fine-tuned): {:.3f}".format(test_score))
-# with open(log_file, "a") as f:
-#     f.write("Rundkast Test Score (fine-tuned): {:.3f}\n".format(test_score))
+print("RUNDKAST")
+finetuned_Rundkast_results = dataset_rundkast.map(get_transcriptions_with_score)
+finetuned_Rundkast_results.to_csv("./logs/finetuned_Rundkast_results_" + finetuned_model_name + ".csv" )
+wer_score = finetuned_Rundkast_results["wer"].mean()
+asd_score = finetuned_Rundkast_results["asd"].mean()
+print("Test Score (fine-tuned) WER: {:.3f}".format(wer_score))
+print("Test Score (fine-tuned) ASD: {:.3f}".format(asd_score))
+with open(log_file, "a") as f:
+    f.write("Rundkast Test Score (fine-tuned) WER: {:.3f}\n".format(wer_score))
+    f.write("Rundkast Test Score (fine-tuned) ASD: {:.3f}\n".format(asd_score))
 
-# print("NB TALE")
-# finetuned_NBTale_results = dataset_nbtale.map(get_transcriptions_with_score)
-# finetuned_NBTale_results.to_csv("./logs/finetuned_NBTale_results_" + finetuned_model_name + ".csv" )
-# print("Test Score (fine-tuned): {:.3f}".format(test_score))
-# with open(log_file, "a") as f:
-#     f.write("NB Tale Test Score (fine-tuned): {:.3f}\n".format(test_score))
+print("NB TALE")
+finetuned_NBTale_results = dataset_nbtale.map(get_transcriptions_with_score)
+finetuned_NBTale_results.to_csv("./logs/finetuned_NBTale_results_" + finetuned_model_name + ".csv" )
+wer_score = finetuned_NBTale_results["wer"].mean()
+asd_score = finetuned_NBTale_results["asd"].mean()
+print("Test Score (fine-tuned) WER: {:.3f}".format(wer_score))
+print("Test Score (fine-tuned) ASD: {:.3f}".format(asd_score))
+with open(log_file, "a") as f:
+    f.write("NB Tale Test Score (fine-tuned) WER: {:.3f}\n".format(wer_score))
+    f.write("NB Tale Test Score (fine-tuned) ASD: {:.3f}\n".format(asd_score))
 
-# print("STORTINGET")
-# finetuned_Stortinget_results = dataset_stortinget.map(get_transcriptions_with_score)
-# finetuned_Stortinget_results.to_csv("./logs/finetuned_Stortinget_results_" + finetuned_model_name + ".csv" )
-# print("Test Score (fine-tuned): {:.3f}".format(test_score))
-# with open(log_file, "a") as f:
-#     f.write("Stortinget Test Score (fine-tuned): {:.3f}\n".format(test_score))
+print("STORTINGET")
+finetuned_Stortinget_results = dataset_stortinget.map(get_transcriptions_with_score)
+finetuned_Stortinget_results.to_csv("./logs/finetuned_Stortinget_results_" + finetuned_model_name + ".csv" )
+wer_score = finetuned_Stortinget_results["wer"].mean()
+asd_score = finetuned_Stortinget_results["asd"].mean()
+print("Test Score (fine-tuned) WER: {:.3f}".format(wer_score))
+print("Test Score (fine-tuned) ASD: {:.3f}".format(asd_score))
+with open(log_file, "a") as f:
+    f.write("Stortinget Test Score (fine-tuned) WER: {:.3f}\n".format(wer_score))
+    f.write("Stortinget Test Score (fine-tuned) ASD: {:.3f}\n".format(asd_score))
 
