@@ -1,4 +1,4 @@
-# fine-tuned model path should be withouth "/" at the end of the path in order to save transcriptions in unique csv files
+# fine-tuned model path should be without "/" at the end of the path in order to save transcriptions in unique csv files
 
 # python test_wav2vec2.py --original_model="NbAiLab/nb-wav2vec2-300m-bokmaal"\
 #                         --fine_tuned_model="../../fine_tuned_models/wav2vec2_NO_customLossV1"\
