@@ -245,13 +245,13 @@ print("RUNNING MODELS WITH THE TEST DATA")
 print("Loading test datasets")
 
 dataset_rundkast = load_test_dataset(rundkast_dir)
-dataset_rundkast = dataset_rundkast.map(remove_special_characters)
+dataset_rundkast = dataset_rundkast.map(remove_special_characters, batched=True)
 
 dataset_nbtale = load_test_dataset(nbtale_dir)
-dataset_nbtale = dataset_nbtale.map(remove_special_characters)
+dataset_nbtale = dataset_nbtale.map(remove_special_characters, batched=True)
 
 dataset_stortinget = load_test_dataset(stortinget_dir)
-dataset_stortinget = dataset_stortinget.map(remove_special_characters)
+dataset_stortinget = dataset_stortinget.map(remove_special_characters, batched=True)
 
 print("Loading evaluation metrics")
 
@@ -276,8 +276,8 @@ if args.get_orig_model_results == 1:
     model = Wav2Vec2ForCTC.from_pretrained(model_name)
 
     print("RUNDKAST")
-    Rundkast_results = dataset_rundkast.map(get_transcriptions)
-    Rundkast_results = Rundkast_results.map(get_score_per_utt)
+    Rundkast_results = dataset_rundkast.map(get_transcriptions, batched=True)
+    Rundkast_results = Rundkast_results.map(get_score_per_utt, batched=True)
     Rundkast_results.to_csv("./logs/Rundkast_results_" + original_model_name + ".csv" )
     wer_score = Rundkast_results["wer"].mean()
     asd_score = Rundkast_results["asd"].mean()
