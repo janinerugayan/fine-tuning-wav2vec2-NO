@@ -245,13 +245,13 @@ print("RUNNING MODELS WITH THE TEST DATA")
 print("Loading test datasets")
 
 dataset_rundkast = load_test_dataset(rundkast_dir)
-dataset_rundkast = dataset_rundkast.map(remove_special_characters, batched=True)
+dataset_rundkast = dataset_rundkast.map(remove_special_characters)
 
 dataset_nbtale = load_test_dataset(nbtale_dir)
-dataset_nbtale = dataset_nbtale.map(remove_special_characters, batched=True)
+dataset_nbtale = dataset_nbtale.map(remove_special_characters)
 
 dataset_stortinget = load_test_dataset(stortinget_dir)
-dataset_stortinget = dataset_stortinget.map(remove_special_characters, batched=True)
+dataset_stortinget = dataset_stortinget.map(remove_special_characters)
 
 print("Loading evaluation metrics")
 
