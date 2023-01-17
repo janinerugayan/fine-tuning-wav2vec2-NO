@@ -204,6 +204,7 @@ def get_transcriptions(batch):
     transcription = processor.batch_decode(logits.detach().numpy()).text
     batch["asr_str"] = transcription[0]
     batch["ref_str"] = reference_text
+    batch["asd"] = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=batch["ref_str"], hypothesis=batch["asr_str"])
     return batch
 
 def get_score_per_utt(batch):
@@ -277,14 +278,14 @@ if args.get_orig_model_results == 1:
 
     print("RUNDKAST")
     Rundkast_results = dataset_rundkast.map(get_transcriptions)
-    Rundkast_results = Rundkast_results.map(get_score_per_utt)
+    # Rundkast_results = Rundkast_results.map(get_score_per_utt)
     Rundkast_results.to_csv("./logs/Rundkast_results_" + original_model_name + ".csv" )
-    wer_score = Rundkast_results["wer"].mean()
+    # wer_score = Rundkast_results["wer"].mean()
     asd_score = Rundkast_results["asd"].mean()
-    print("Test Score (original) WER: {:.3f}".format(wer_score))
+    # print("Test Score (original) WER: {:.3f}".format(wer_score))
     print("Test Score (original) ASD: {:.3f}".format(asd_score))
     with open(log_file, "a") as f:
-        f.write("Rundkast Test Score (original) WER: {:.3f}\n".format(wer_score))
+        # f.write("Rundkast Test Score (original) WER: {:.3f}\n".format(wer_score))
         f.write("Rundkast Test Score (original) ASD: {:.3f}\n".format(asd_score))
 
 #     print("NB TALE")
