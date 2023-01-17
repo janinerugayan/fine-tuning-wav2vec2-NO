@@ -302,7 +302,7 @@ if args.get_orig_model_results == 1:
     NBTale_results = dataset_nbtale.map(get_transcriptions)
     for example in NBTale_results:
         example["asd"] = get_dtwdist_all_layers(metric_model, metric_tokenizer, example["ref_str"], example["asr_str"])
-        example["wer"] = wer_metric.compute(predictions=example["asr_str"], references=example["ref_str"])
+        # example["wer"] = wer_metric.compute(predictions=example["asr_str"], references=example["ref_str"])
         print(example["asd"])
 
     # Rundkast_results = Rundkast_results.map(get_score_per_utt)
