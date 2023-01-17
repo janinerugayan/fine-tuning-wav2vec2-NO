@@ -14,6 +14,7 @@ from pydub import AudioSegment
 import xml.etree.ElementTree as ET
 import argparse
 from dtw import *
+from scipy.spatial import distance 
 
 
 
