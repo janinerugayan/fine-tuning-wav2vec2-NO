@@ -206,12 +206,8 @@ def get_transcriptions(batch):
     transcription = processor.batch_decode(logits.detach().numpy()).text
     batch["asr_str"] = transcription[0]
     batch["ref_str"] = reference_text
+    batch["asd"] = get_dtwdist_all_layers(metric_model, metric_tokenizer, reference_text, transcription[0])
     return batch
-
-def get_score_per_utt(example):
-    example["wer"] = wer_metric.compute(predictions=example["asr_str"], references=example["ref_str"])
-    example["asd"] = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=example["ref_str"], hypothesis=example["asr_str"])
-    print(example["wer"], example["asd"])
 
 def get_dtwdist_all_layers(model, tokenizer, ref, hyp):
     tokenized_ref = tokenizer(ref, padding=True, truncation=True, max_length=512, return_tensors="pt")
@@ -234,6 +230,11 @@ def get_dtwdist_all_layers(model, tokenizer, ref, hyp):
     min_global_distance_norm = (alignment.distance / num_tokens)
     return min_global_distance_norm
 
+def get_score_per_utt(example):
+    # example["wer"] = wer_metric.compute(predictions=example["asr_str"], references=example["ref_str"])
+    example["asd"] = get_dtwdist_all_layers(metric_model, metric_tokenizer, example["ref_str"], example["asr_str"])
+    # example["asd"] = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=example["ref_str"], hypothesis=example["asr_str"])
+    # print(example["wer"], example["asd"])
 
 
 
@@ -300,10 +301,10 @@ if args.get_orig_model_results == 1:
 
     print("NB TALE")
     NBTale_results = dataset_nbtale.map(get_transcriptions)
-    for example in NBTale_results:
-        example["asd"] = get_dtwdist_all_layers(metric_model, metric_tokenizer, example["ref_str"], example["asr_str"])
-        # example["wer"] = wer_metric.compute(predictions=example["asr_str"], references=example["ref_str"])
-        print(example["asd"])
+    # for example in NBTale_results:
+    #     example["asd"] = get_dtwdist_all_layers(metric_model, metric_tokenizer, example["ref_str"], example["asr_str"])
+    #     # example["wer"] = wer_metric.compute(predictions=example["asr_str"], references=example["ref_str"])
+    #     print(example["asd"])
 
     # Rundkast_results = Rundkast_results.map(get_score_per_utt)
     NBTale_results.to_csv("./logs/NBTale_results_" + original_model_name + ".csv" )
