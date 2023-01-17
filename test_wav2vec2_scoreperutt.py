@@ -280,6 +280,8 @@ if args.get_orig_model_results == 1:
     for example in Rundkast_results:
         print(example["ref_str"])
         print(example["asr_str"])
+        example["asd"] = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=example["ref_str"], hypothesis=example["asr_str"])
+        print(example["asd"])
 
     # Rundkast_results = Rundkast_results.map(get_score_per_utt)
     Rundkast_results.to_csv("./logs/Rundkast_results_" + original_model_name + ".csv" )
