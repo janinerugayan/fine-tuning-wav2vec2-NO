@@ -212,8 +212,8 @@ def get_score_per_utt(example):
     print(example["wer"], example["asd"])
 
 def get_dtwdist_all_layers(model, tokenizer, ref, hyp):
-    tokenized_ref = tokenize_sentence(tokenizer, ref)
-    tokenized_hyp = tokenize_sentence(tokenizer, hyp)
+    tokenized_ref = tokenizer(ref, padding=True, truncation=True, max_length=512, return_tensors="pt")
+    tokenized_hyp = tokenizer(hyp, padding=True, truncation=True, max_length=512, return_tensors="pt")
     with torch.no_grad():
         model_output_ref = model(**tokenized_ref, output_hidden_states=True)
         model_output_hyp = model(**tokenized_hyp, output_hidden_states=True)
