@@ -239,16 +239,19 @@ def get_score_per_utt(example):
 
 
 
+date_today = str(date.today())
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--original_model",     type=str)
 parser.add_argument("--fine_tuned_model",   type=str)
-parser.add_argument("--log_file",           type=str)
+parser.add_argument("--log_file_name",      type=str)
 parser.add_argument("--get_orig_model_results", type=int)
 args = parser.parse_args()
 
 model_name = args.original_model
 finetuned_model_dir = args.fine_tuned_model
-log_file = "./logs/" + args.log_file + "_" + date.today() + ".txt"
+log_file_name = "./logs/" + args.log_file_name + "_" + date_today + ".txt"
 
 
 rundkast_dir = ["../../datasets/NordTrans_TUL/test/Rundkast/"]
@@ -285,7 +288,7 @@ metric_tokenizer = AutoTokenizer.from_pretrained(metric_modelname)
 
 
 with open(log_file, "a") as f:
-    f.write("Test Date: {f}\n".format(date.today()))
+    f.write("Test Date: {f}\n".format(date_today))
 
 
 if args.get_orig_model_results == 1:
@@ -298,7 +301,7 @@ if args.get_orig_model_results == 1:
     print("NB TALE")
     NBTale_transcriptions = dataset_nbtale.map(get_transcriptions)
     NBTale_results = NBTale_transcriptions.map(get_score_per_utt)
-    NBTale_results.to_csv("./logs/NBTale_results_" + original_model_name + "_" + date.today() + ".csv" )
+    NBTale_results.to_csv("./logs/NBTale_results_" + original_model_name + "_" + date_today + ".csv" )
     
     wer_score_mean = sum(NBTale_results["wer"]) / len(NBTale_results["wer"])
     asd_score_mean = sum(NBTale_results["asd"]) / len(NBTale_results["asd"])
