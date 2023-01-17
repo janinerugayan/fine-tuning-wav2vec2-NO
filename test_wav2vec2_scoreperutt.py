@@ -220,15 +220,15 @@ parser.add_argument("--original_model",     type=str)
 parser.add_argument("--fine_tuned_model",   type=str)
 parser.add_argument("--log_file",           type=str)
 parser.add_argument("--get_orig_model_results", type=int)
-parser.add_argument("--metric_to_use",             type=str)
-parser.add_argument("--extract_transcriptions",    type=int)
+# parser.add_argument("--metric_to_use",             type=str)
+# parser.add_argument("--extract_transcriptions",    type=int)
 args = parser.parse_args()
 
 model_name = args.original_model
 finetuned_model_dir = args.fine_tuned_model
 log_file = args.log_file
-metric_to_use = args.metric_to_use
-extract_transcriptions = args.extract_transcriptions
+# metric_to_use = args.metric_to_use
+# extract_transcriptions = args.extract_transcriptions
 
 rundkast_dir = ["../../datasets/NordTrans_TUL/test/Rundkast/"]
 nbtale_dir = ["../../datasets/NordTrans_TUL/test/NB_Tale/"]
@@ -277,7 +277,7 @@ if args.get_orig_model_results == 1:
 
     print("RUNDKAST")
     Rundkast_results = dataset_rundkast.map(get_transcriptions)
-    Rundkast_results = Rundkast_results.map(get_score_per_utt, batched=True)
+    Rundkast_results = Rundkast_results.map(get_score_per_utt)
     Rundkast_results.to_csv("./logs/Rundkast_results_" + original_model_name + ".csv" )
     wer_score = Rundkast_results["wer"].mean()
     asd_score = Rundkast_results["asd"].mean()
