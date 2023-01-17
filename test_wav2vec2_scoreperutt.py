@@ -207,7 +207,7 @@ def get_transcriptions(batch):
     return batch
 
 def get_score_per_utt(batch):
-    batch["wer"] = wer_metric.compute(predictions=batch["asr_str"], references=batch["ref_str"])
+    # batch["wer"] = wer_metric.compute(predictions=batch["asr_str"], references=batch["ref_str"])
     batch["asd"] = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=batch["ref_str"], hypothesis=batch["asr_str"])
     return batch
 
