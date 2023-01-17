@@ -211,6 +211,27 @@ def get_score_per_utt(example):
     example["asd"] = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=example["ref_str"], hypothesis=example["asr_str"])
     print(example["wer"], example["asd"])
 
+def get_dtwdist_all_layers(model, tokenizer, ref, hyp):
+    tokenized_ref = tokenize_sentence(tokenizer, ref)
+    tokenized_hyp = tokenize_sentence(tokenizer, hyp)
+    with torch.no_grad():
+        model_output_ref = model(**tokenized_ref, output_hidden_states=True)
+        model_output_hyp = model(**tokenized_hyp, output_hidden_states=True)
+    hidden_states_ref = model_output_ref.hidden_states
+    hidden_states_hyp = model_output_hyp.hidden_states
+    all_layers_reference = [hidden_states_ref[1].squeeze(), hidden_states_ref[2].squeeze(), hidden_states_ref[3].squeeze(), hidden_states_ref[4].squeeze(),
+                            hidden_states_ref[5].squeeze(), hidden_states_ref[6].squeeze(), hidden_states_ref[7].squeeze(), hidden_states_ref[8].squeeze(),
+                            hidden_states_ref[9].squeeze(), hidden_states_ref[10].squeeze(), hidden_states_ref[11].squeeze(), hidden_states_ref[12].squeeze()]
+    all_layers_hypothesis = [hidden_states_hyp[1].squeeze(), hidden_states_hyp[2].squeeze(), hidden_states_hyp[3].squeeze(), hidden_states_hyp[4].squeeze(),
+                             hidden_states_hyp[5].squeeze(), hidden_states_hyp[6].squeeze(), hidden_states_hyp[7].squeeze(), hidden_states_hyp[8].squeeze(),
+                             hidden_states_hyp[9].squeeze(), hidden_states_hyp[10].squeeze(), hidden_states_hyp[11].squeeze(), hidden_states_hyp[12].squeeze()]
+    output_mean_reference = torch.stack(all_layers_reference).mean(dim=0)
+    output_mean_hypothesis = torch.stack(all_layers_hypothesis).mean(dim=0)
+    alignment = dtw(output_mean_hypothesis, output_mean_reference, dist_method=distance.cosine, keep_internals=True)
+    num_tokens = len(output_mean_reference)
+    min_global_distance_norm = (alignment.distance / num_tokens)
+    return min_global_distance_norm
+
 
 
 
@@ -278,9 +299,7 @@ if args.get_orig_model_results == 1:
     print("RUNDKAST")
     Rundkast_results = dataset_rundkast.map(get_transcriptions)
     for example in Rundkast_results:
-        print(example["ref_str"])
-        print(example["asr_str"])
-        example["asd"] = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=example["ref_str"], hypothesis=example["asr_str"])
+        example["asd"] = get_dtwdist_all_layers(metric_model, metric_tokenizer, example["ref_str"], example["asr_str"])
         print(example["asd"])
 
     # Rundkast_results = Rundkast_results.map(get_score_per_utt)
