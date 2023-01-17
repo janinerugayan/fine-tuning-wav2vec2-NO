@@ -288,7 +288,7 @@ metric_tokenizer = AutoTokenizer.from_pretrained(metric_modelname)
 
 
 with open(log_file, "a") as f:
-    f.write("Test Date: {f}\n".format(date_today))
+    f.write("Test Date: {}\n".format(date_today))
 
 
 if args.get_orig_model_results == 1:
