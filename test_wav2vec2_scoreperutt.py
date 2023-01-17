@@ -248,7 +248,7 @@ args = parser.parse_args()
 
 model_name = args.original_model
 finetuned_model_dir = args.fine_tuned_model
-log_file = args.log_file
+log_file = "./logs/" + args.log_file + "_" + date.today() + ".txt"
 
 
 rundkast_dir = ["../../datasets/NordTrans_TUL/test/Rundkast/"]
