@@ -296,21 +296,21 @@ if args.get_orig_model_results == 1:
     processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
     model = Wav2Vec2ForCTC.from_pretrained(model_name)
 
-    print("RUNDKAST")
-    Rundkast_results = dataset_rundkast.map(get_transcriptions)
-    for example in Rundkast_results:
+    print("NB TALE")
+    NBTale_results = dataset_nbtale.map(get_transcriptions)
+    for example in NBTale_results:
         example["asd"] = get_dtwdist_all_layers(metric_model, metric_tokenizer, example["ref_str"], example["asr_str"])
         print(example["asd"])
 
     # Rundkast_results = Rundkast_results.map(get_score_per_utt)
-    Rundkast_results.to_csv("./logs/Rundkast_results_" + original_model_name + ".csv" )
+    NBTale_results.to_csv("./logs/NBTale_results_" + original_model_name + ".csv" )
     # wer_score = Rundkast_results["wer"].mean()
-    asd_score = Rundkast_results["asd"].mean()
+    asd_score = NBTale_results["asd"].mean()
     # print("Test Score (original) WER: {:.3f}".format(wer_score))
     print("Test Score (original) ASD: {:.3f}".format(asd_score))
     with open(log_file, "a") as f:
         # f.write("Rundkast Test Score (original) WER: {:.3f}\n".format(wer_score))
-        f.write("Rundkast Test Score (original) ASD: {:.3f}\n".format(asd_score))
+        f.write("NB Tale Test Score (original) ASD: {:.3f}\n".format(asd_score))
 
 #     print("NB TALE")
 #     NBTale_results = dataset_nbtale.map(get_transcriptions)
