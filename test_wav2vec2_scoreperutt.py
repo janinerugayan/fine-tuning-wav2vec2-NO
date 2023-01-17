@@ -276,9 +276,9 @@ if args.get_orig_model_results == 1:
     model = Wav2Vec2ForCTC.from_pretrained(model_name)
 
     print("RUNDKAST")
-    for example in dataset_rundkast:
-        get_score_per_utt(example)
     Rundkast_results = dataset_rundkast.map(get_transcriptions)
+    for example in Rundkast_results:
+        get_score_per_utt(example)
     # Rundkast_results = Rundkast_results.map(get_score_per_utt)
     Rundkast_results.to_csv("./logs/Rundkast_results_" + original_model_name + ".csv" )
     # wer_score = Rundkast_results["wer"].mean()
