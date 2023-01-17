@@ -204,13 +204,12 @@ def get_transcriptions(batch):
     transcription = processor.batch_decode(logits.detach().numpy()).text
     batch["asr_str"] = transcription[0]
     batch["ref_str"] = reference_text
-    batch["asd"] = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=reference_text, hypothesis=transcription[0])
     return batch
 
-def get_score_per_utt(batch):
-    # batch["wer"] = wer_metric.compute(predictions=batch["asr_str"], references=batch["ref_str"])
-    batch["asd"] = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=batch["ref_str"], hypothesis=batch["asr_str"])
-    return batch
+def get_score_per_utt(example):
+    example["wer"] = wer_metric.compute(predictions=example["asr_str"], references=example["ref_str"])
+    example["asd"] = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=example["ref_str"], hypothesis=example["asr_str"])
+    print(example["wer"], example["asd"])
 
 
 
@@ -277,6 +276,8 @@ if args.get_orig_model_results == 1:
     model = Wav2Vec2ForCTC.from_pretrained(model_name)
 
     print("RUNDKAST")
+    for example in dataset_rundkast:
+        get_score_per_utt(example)
     Rundkast_results = dataset_rundkast.map(get_transcriptions)
     # Rundkast_results = Rundkast_results.map(get_score_per_utt)
     Rundkast_results.to_csv("./logs/Rundkast_results_" + original_model_name + ".csv" )
