@@ -206,7 +206,7 @@ def get_transcriptions(batch):
     transcription = processor.batch_decode(logits.detach().numpy()).text
     batch["asr_str"] = transcription[0]
     batch["ref_str"] = reference_text
-    batch["asd"] = get_dtwdist_all_layers(metric_model, metric_tokenizer, reference_text, transcription[0])
+    # batch["asd"] = get_dtwdist_all_layers(metric_model, metric_tokenizer, reference_text, transcription[0])
     return batch
 
 def get_dtwdist_all_layers(model, tokenizer, ref, hyp):
@@ -235,6 +235,7 @@ def get_score_per_utt(example):
     example["asd"] = get_dtwdist_all_layers(metric_model, metric_tokenizer, example["ref_str"], example["asr_str"])
     # example["asd"] = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=example["ref_str"], hypothesis=example["asr_str"])
     # print(example["wer"], example["asd"])
+    return example
 
 
 
@@ -300,7 +301,8 @@ if args.get_orig_model_results == 1:
     model = Wav2Vec2ForCTC.from_pretrained(model_name)
 
     print("NB TALE")
-    NBTale_results = dataset_nbtale.map(get_transcriptions)
+    NBTale_transcriptions = dataset_nbtale.map(get_transcriptions)
+    NBTale_results = NBTale_transcriptions.map(get_score_per_utt)
     # for example in NBTale_results:
     #     example["asd"] = get_dtwdist_all_layers(metric_model, metric_tokenizer, example["ref_str"], example["asr_str"])
     #     # example["wer"] = wer_metric.compute(predictions=example["asr_str"], references=example["ref_str"])
@@ -309,7 +311,7 @@ if args.get_orig_model_results == 1:
     # Rundkast_results = Rundkast_results.map(get_score_per_utt)
     NBTale_results.to_csv("./logs/NBTale_results_" + original_model_name + ".csv" )
     # wer_score = Rundkast_results["wer"].mean()
-    asd_score = NBTale_results["asd"].mean()
+    asd_score = sum(NBTale_results["asd"]) / len(NBTale_results["asd"])
     # print("Test Score (original) WER: {:.3f}".format(wer_score))
     print("Test Score (original) ASD: {:.3f}".format(asd_score))
     with open(log_file, "a") as f:
