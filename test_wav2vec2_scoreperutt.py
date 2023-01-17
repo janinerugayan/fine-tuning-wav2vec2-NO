@@ -278,7 +278,9 @@ if args.get_orig_model_results == 1:
     print("RUNDKAST")
     Rundkast_results = dataset_rundkast.map(get_transcriptions)
     for example in Rundkast_results:
-        get_score_per_utt(example)
+        print(example["ref_str"])
+        print(example["asr_str"])
+
     # Rundkast_results = Rundkast_results.map(get_score_per_utt)
     Rundkast_results.to_csv("./logs/Rundkast_results_" + original_model_name + ".csv" )
     # wer_score = Rundkast_results["wer"].mean()
