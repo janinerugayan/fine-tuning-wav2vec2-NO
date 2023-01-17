@@ -14,7 +14,9 @@ from pydub import AudioSegment
 import xml.etree.ElementTree as ET
 import argparse
 from dtw import *
-from scipy.spatial import distance 
+from scipy.spatial import distance
+from datetime import date
+from jiwer import wer 
 
 
 
@@ -206,10 +208,9 @@ def get_transcriptions(batch):
     transcription = processor.batch_decode(logits.detach().numpy()).text
     batch["asr_str"] = transcription[0]
     batch["ref_str"] = reference_text
-    # batch["asd"] = get_dtwdist_all_layers(metric_model, metric_tokenizer, reference_text, transcription[0])
     return batch
 
-def get_dtwdist_all_layers(model, tokenizer, ref, hyp):
+def get_asd_score(model, tokenizer, ref, hyp):
     tokenized_ref = tokenizer(ref, padding=True, truncation=True, max_length=512, return_tensors="pt")
     tokenized_hyp = tokenizer(hyp, padding=True, truncation=True, max_length=512, return_tensors="pt")
     with torch.no_grad():
@@ -231,10 +232,8 @@ def get_dtwdist_all_layers(model, tokenizer, ref, hyp):
     return min_global_distance_norm
 
 def get_score_per_utt(example):
-    # example["wer"] = wer_metric.compute(predictions=example["asr_str"], references=example["ref_str"])
-    example["asd"] = get_dtwdist_all_layers(metric_model, metric_tokenizer, example["ref_str"], example["asr_str"])
-    # example["asd"] = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=example["ref_str"], hypothesis=example["asr_str"])
-    # print(example["wer"], example["asd"])
+    example["wer"] = wer(example["ref_str"], example["asr_str"])
+    example["asd"] = get_asd_score(metric_model, metric_tokenizer, example["ref_str"], example["asr_str"])
     return example
 
 
@@ -245,15 +244,12 @@ parser.add_argument("--original_model",     type=str)
 parser.add_argument("--fine_tuned_model",   type=str)
 parser.add_argument("--log_file",           type=str)
 parser.add_argument("--get_orig_model_results", type=int)
-# parser.add_argument("--metric_to_use",             type=str)
-# parser.add_argument("--extract_transcriptions",    type=int)
 args = parser.parse_args()
 
 model_name = args.original_model
 finetuned_model_dir = args.fine_tuned_model
 log_file = args.log_file
-# metric_to_use = args.metric_to_use
-# extract_transcriptions = args.extract_transcriptions
+
 
 rundkast_dir = ["../../datasets/NordTrans_TUL/test/Rundkast/"]
 nbtale_dir = ["../../datasets/NordTrans_TUL/test/NB_Tale/"]
@@ -280,17 +276,16 @@ dataset_stortinget = dataset_stortinget.map(remove_special_characters)
 
 print("Loading evaluation metrics")
 
-# LOAD WER METRIC
-wer_metric = load_metric("wer")
 
-# LOAD ASD METRIC
+# LOAD FOR ASD METRIC
 transformers.logging.set_verbosity(40)
 metric_modelname = 'ltgoslo/norbert'
 metric_model = BertModel.from_pretrained(metric_modelname)
 metric_tokenizer = AutoTokenizer.from_pretrained(metric_modelname)
-# asd_metric = load_metric("asd_metric.py")
 
 
+with open(log_file, "a") as f:
+    f.write("Test Date: {f}\n".format(date.today()))
 
 
 if args.get_orig_model_results == 1:
@@ -303,20 +298,15 @@ if args.get_orig_model_results == 1:
     print("NB TALE")
     NBTale_transcriptions = dataset_nbtale.map(get_transcriptions)
     NBTale_results = NBTale_transcriptions.map(get_score_per_utt)
-    # for example in NBTale_results:
-    #     example["asd"] = get_dtwdist_all_layers(metric_model, metric_tokenizer, example["ref_str"], example["asr_str"])
-    #     # example["wer"] = wer_metric.compute(predictions=example["asr_str"], references=example["ref_str"])
-    #     print(example["asd"])
-
-    # Rundkast_results = Rundkast_results.map(get_score_per_utt)
-    NBTale_results.to_csv("./logs/NBTale_results_" + original_model_name + ".csv" )
-    # wer_score = Rundkast_results["wer"].mean()
-    asd_score = sum(NBTale_results["asd"]) / len(NBTale_results["asd"])
-    # print("Test Score (original) WER: {:.3f}".format(wer_score))
-    print("Test Score (original) ASD: {:.3f}".format(asd_score))
+    NBTale_results.to_csv("./logs/NBTale_results_" + original_model_name + "_" + date.today() + ".csv" )
+    
+    wer_score_mean = sum(NBTale_results["wer"]) / len(NBTale_results["wer"])
+    asd_score_mean = sum(NBTale_results["asd"]) / len(NBTale_results["asd"])
+    print("Test Score (original) WER: {:.3f}".format(wer_score_mean))
+    print("Test Score (original) ASD: {:.3f}".format(asd_score_mean))
     with open(log_file, "a") as f:
-        # f.write("Rundkast Test Score (original) WER: {:.3f}\n".format(wer_score))
-        f.write("NB Tale Test Score (original) ASD: {:.3f}\n".format(asd_score))
+        f.write("NB Tale Test Score (original) WER: {:.3f}\n".format(wer_score_mean))
+        f.write("NB Tale Test Score (original) ASD: {:.3f}\n".format(asd_score_mean))
 
 #     print("NB TALE")
 #     NBTale_results = dataset_nbtale.map(get_transcriptions)
