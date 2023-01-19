@@ -323,7 +323,7 @@ if args.get_orig_model_results == 1:
         f.write("NB Tale Test Score (original) ASD: {:.3f}\n".format(asd_score_mean))
 
     print("STORTINGET")
-    Stortinget_transcriptions = dataset_nbtale.map(get_transcriptions)
+    Stortinget_transcriptions = dataset_stortinget.map(get_transcriptions)
     Stortinget_results = Stortinget_transcriptions.map(get_score_per_utt)
     Stortinget_results.to_csv("./logs/Stortinget_results_" + original_model_name + "_" + date_today + ".csv" )
     wer_score_mean = sum(Stortinget_results["wer"]) / len(Stortinget_results["wer"])
@@ -367,7 +367,7 @@ with open(log_file, "a") as f:
     f.write("NB Tale Test Score (finetuned) ASD: {:.3f}\n".format(asd_score_mean))
 
 print("STORTINGET")
-Stortinget_transcriptions = dataset_nbtale.map(get_transcriptions)
+Stortinget_transcriptions = dataset_stortinget.map(get_transcriptions)
 Stortinget_results = Stortinget_transcriptions.map(get_score_per_utt)
 Stortinget_results.to_csv("./logs/Stortinget_results_" + finetuned_model_name + "_" + date_today + ".csv" )
 wer_score_mean = sum(Stortinget_results["wer"]) / len(Stortinget_results["wer"])
