@@ -1,7 +1,7 @@
 import collections
-if not hasattr(collections, "Container"):
-    import collections.abc
-    collections.Container = collections.abc.Container
+# if not hasattr(collections, "Container"):
+#     import collections.abc
+#     collections.Container = collections.abc.Container
 import transformers
 from transformers import AutoTokenizer, BertModel
 from transformers import Wav2Vec2CTCTokenizer, Wav2Vec2FeatureExtractor, Wav2Vec2Processor
