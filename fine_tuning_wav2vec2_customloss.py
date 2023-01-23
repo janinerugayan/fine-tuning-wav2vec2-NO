@@ -308,7 +308,8 @@ if args.use_asd_metric == 1:
             loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
 
             # add asd score to loss
-            loss += (1 - asd_score)
+            # loss += (1 - asd_score)
+            loss += asd_score
 
             return (loss, outputs) if return_outputs else loss
 

@@ -7,8 +7,8 @@ mkdir wav2vec2_NO_customLossV1
 cd ../github/fine-tuning-wav2vec2-NO/
 
 python3 fine_tuning_wav2vec2_customloss.py --original_model="NbAiLab/nb-wav2vec2-300m-bokmaal"\
-                                           --fine_tuned_model_ver="fine-tuning_wav2vec2_customLossV1"\
-                                           --export_model_dir="../../fine_tuned_models/wav2vec2_NO_customLossV1/"\
+                                           --fine_tuned_model_ver="fine-tuning_wav2vec2_customLossV2"\
+                                           --export_model_dir="../../fine_tuned_models/wav2vec2_NO_customLossV2/"\
                                            --num_train_epochs=3\
                                            --learning_rate=1e-4\
                                            --use_asd_metric=1
