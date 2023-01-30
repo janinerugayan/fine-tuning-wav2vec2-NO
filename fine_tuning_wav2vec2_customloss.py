@@ -346,15 +346,26 @@ training_args = TrainingArguments(
   report_to="wandb"
 )
 
-trainer = CustomTrainer(
-    model=model,
-    data_collator=data_collator,
-    args=training_args,
-    compute_metrics=compute_metrics,
-    train_dataset=dataset["train"],
-    eval_dataset=dataset["test"],
-    tokenizer=processor.feature_extractor,
-)
+if args.use_asd_metric == 1:
+    trainer = CustomTrainer(
+        model=model,
+        data_collator=data_collator,
+        args=training_args,
+        compute_metrics=compute_metrics,
+        train_dataset=dataset["train"],
+        eval_dataset=dataset["test"],
+        tokenizer=processor.feature_extractor,
+    )
+else:
+    trainer = Trainer(
+        model=model,
+        data_collator=data_collator,
+        args=training_args,
+        compute_metrics=compute_metrics,
+        train_dataset=dataset["train"],
+        eval_dataset=dataset["test"],
+        tokenizer=processor.feature_extractor,
+    )
 
 
 
