@@ -189,8 +189,6 @@ print(dataset)
 # SET-UP TRAINER
 # ---------------------------------------------------
 
-print("Setting up the trainer")
-
 @dataclass
 class DataCollatorCTCWithPadding:
     """
@@ -295,6 +293,8 @@ training_args = TrainingArguments(
 
 
 if args.use_asd_metric == 1:
+    print("Setting up Custom Trainer")
+    
     # https://huggingface.co/transformers/main_classes/logging.html
     # verbosity set to print errors only, by default it is set to 30 = error and warnings
     transformers.logging.set_verbosity(40)
@@ -352,6 +352,8 @@ if args.use_asd_metric == 1:
     )
 
 else:
+    print("Setting up the trainer")
+
     trainer = Trainer(
         model=model,
         data_collator=data_collator,
