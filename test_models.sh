@@ -17,7 +17,7 @@
 python test_wav2vec2_scoreperutt.py --original_model="NbAiLab/nb-wav2vec2-300m-bokmaal"\
                                     --fine_tuned_model="../../fine_tuned_models/wav2vec2_NO_origLossV1"\
                                     --log_file_name="test_log_wav2vec2_NO_origLossV1"\
-                                    --get_orig_model_results=0\
+                                    --get_orig_model_results=1\
 
 python test_wav2vec2_scoreperutt.py --original_model="NbAiLab/nb-wav2vec2-300m-bokmaal"\
                                     --fine_tuned_model="../../fine_tuned_models/wav2vec2_NO_customLossV1"\

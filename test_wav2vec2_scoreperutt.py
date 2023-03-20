@@ -282,7 +282,7 @@ print("Loading evaluation metrics")
 
 # LOAD FOR ASD METRIC
 transformers.logging.set_verbosity(40)
-metric_modelname = 'ltgoslo/norbert'
+metric_modelname = 'ltg/norbert2'  # changed to latest norbert model (20-March-2023)
 metric_model = BertModel.from_pretrained(metric_modelname)
 metric_tokenizer = AutoTokenizer.from_pretrained(metric_modelname)
 
