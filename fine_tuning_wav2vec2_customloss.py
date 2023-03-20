@@ -268,6 +268,32 @@ def compute_metrics(pred):
     return {"wer": wer}
 
 
+repo_local_dir = "../../model_ckpts/" + args.fine_tuned_model_ver + "/"
+# training arguments
+training_args = TrainingArguments(
+  output_dir=repo_local_dir,
+  group_by_length=True,
+  per_device_train_batch_size=8,  # orig: 4
+  per_device_eval_batch_size=8,  # orig: 4
+  eval_accumulation_steps=100,
+  evaluation_strategy="steps",
+  num_train_epochs=args.num_train_epochs,  # orig: 30
+  fp16=True,  # orig: True
+  gradient_checkpointing=True,
+  save_steps=500,
+  eval_steps=500,
+  logging_steps=500,
+  learning_rate=args.learning_rate,  # orig: 1e-4
+  weight_decay=0.005,
+  warmup_steps=2000,  # orig: 1000
+  save_total_limit=2,
+  push_to_hub=False,
+  seed=42,
+  data_seed=42,
+  report_to="wandb"
+)
+
+
 if args.use_asd_metric == 1:
     # https://huggingface.co/transformers/main_classes/logging.html
     # verbosity set to print errors only, by default it is set to 30 = error and warnings
@@ -313,40 +339,8 @@ if args.use_asd_metric == 1:
 
             return (loss, outputs) if return_outputs else loss
 
-
     # trainer.compute_loss = types.MethodType(custom_compute_loss, trainer)
 
-
-    
-
-repo_local_dir = "../../model_ckpts/" + args.fine_tuned_model_ver + "/"
-
-
-# training arguments
-training_args = TrainingArguments(
-  output_dir=repo_local_dir,
-  group_by_length=True,
-  per_device_train_batch_size=8,  # orig: 4
-  per_device_eval_batch_size=8,  # orig: 4
-  eval_accumulation_steps=100,
-  evaluation_strategy="steps",
-  num_train_epochs=args.num_train_epochs,  # orig: 30
-  fp16=True,  # orig: True
-  gradient_checkpointing=True,
-  save_steps=500,
-  eval_steps=500,
-  logging_steps=500,
-  learning_rate=args.learning_rate,  # orig: 1e-4
-  weight_decay=0.005,
-  warmup_steps=2000,  # orig: 1000
-  save_total_limit=2,
-  push_to_hub=False,
-  seed=42,
-  data_seed=42,
-  report_to="wandb"
-)
-
-if args.use_asd_metric == 1:
     trainer = CustomTrainer(
         model=model,
         data_collator=data_collator,
@@ -356,6 +350,7 @@ if args.use_asd_metric == 1:
         eval_dataset=dataset["test"],
         tokenizer=processor.feature_extractor,
     )
+
 else:
     trainer = Trainer(
         model=model,
