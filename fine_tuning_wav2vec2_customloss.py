@@ -273,7 +273,7 @@ if args.use_asd_metric == 1:
     # verbosity set to print errors only, by default it is set to 30 = error and warnings
     transformers.logging.set_verbosity(40)
     # The bare Bert Model transformer outputting raw hidden-states without any specific head on top.
-    metric_modelname = 'ltgoslo/norbert'
+    metric_modelname = 'ltg/norbert2'  # changed to latest version of NorBERT (20-Mar-2023)
     metric_model = BertModel.from_pretrained(metric_modelname)
     metric_tokenizer = AutoTokenizer.from_pretrained(metric_modelname)
 
