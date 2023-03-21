@@ -294,7 +294,7 @@ training_args = TrainingArguments(
 
 if args.use_asd_metric == 1:
     print("Setting up Custom Trainer")
-    
+
     # https://huggingface.co/transformers/main_classes/logging.html
     # verbosity set to print errors only, by default it is set to 30 = error and warnings
     transformers.logging.set_verbosity(40)
@@ -310,6 +310,7 @@ if args.use_asd_metric == 1:
             super().__init__(*args, **kwargs)
             
         def compute_loss(self, model, inputs, return_outputs=False):
+
             """
             How the loss is computed by Trainer. By default, all models return the loss in the first element.
             Subclass and override for custom behavior.
