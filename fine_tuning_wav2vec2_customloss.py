@@ -127,9 +127,10 @@ parser.add_argument("--export_model_dir",       type=str)
 parser.add_argument("--num_train_epochs",       type=int)
 parser.add_argument("--learning_rate",          type=float)
 parser.add_argument("--use_asd_metric",         type=int)
+parser.add_argument("--wandb_name",             type=str)
 args = parser.parse_args()
 
-wandb.init(project="fine-tuning-wav2vec2-NO_customLoss", entity="janinerugayan")
+wandb.init(project="fine-tuning-wav2vec2-NO_customLoss", entity="janinerugayan", name=args.wandb_name)
 
 # torch.multiprocessing.set_start_method('spawn')
 
@@ -256,16 +257,6 @@ class DataCollatorCTCWithPadding:
 data_collator = DataCollatorCTCWithPadding(processor=processor, padding=True)
 
 
-wer_metric = load_metric("wer")
-def compute_metrics(pred):
-    pred_logits = pred.predictions
-    pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
-    pred_str = processor.batch_decode(pred_logits)
-    label_str = processor_woLM.batch_decode(pred.label_ids, group_tokens=False)  # we do not want to group tokens when computing the metrics
-    wer = wer_metric.compute(predictions=pred_str.text, references=label_str) # worked in fine-tuning versions 1 to 14 (wer metric)
-    return {"wer": wer}
-
-
 repo_local_dir = "../../model_ckpts/" + args.fine_tuned_model_ver + "/"
 # training arguments
 training_args = TrainingArguments(
@@ -292,6 +283,15 @@ training_args = TrainingArguments(
 )
 
 
+wer_metric = load_metric("wer")
+def compute_metrics(pred):
+    pred_logits = pred.predictions
+    pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
+    pred_str = processor.batch_decode(pred_logits)
+    label_str = processor_woLM.batch_decode(pred.label_ids, group_tokens=False)  # we do not want to group tokens when computing the metrics
+    wer = wer_metric.compute(predictions=pred_str.text, references=label_str) # worked in fine-tuning versions 1 to 14 (wer metric)
+    return {"wer": wer}
+
 if args.use_asd_metric == 1:
     print("Setting up Custom Trainer")
 
@@ -308,7 +308,7 @@ if args.use_asd_metric == 1:
     class CustomTrainer(Trainer):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
-            
+
         def compute_loss(self, model, inputs, return_outputs=False):
 
             """
