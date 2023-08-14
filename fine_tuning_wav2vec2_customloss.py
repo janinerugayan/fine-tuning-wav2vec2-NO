@@ -326,17 +326,18 @@ if args.use_asd_metric == 1:
             label_str = processor_woLM.batch_decode(labels, group_tokens=False)  # we do not want to group tokens when computing the metrics
             asd_score = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=label_str, hypothesis=pred_str.text)
 
-            if isinstance(outputs, dict) and "loss" not in outputs:
-                raise ValueError(
-                    "The model did not return a loss from the inputs, only the following keys: "
-                    f"{','.join(outputs.keys())}. For reference, the inputs it received are {','.join(inputs.keys())}."
-                )
-            # We don't use .loss here since the model may return tuples instead of ModelOutput.
-            loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
+            # if isinstance(outputs, dict) and "loss" not in outputs:
+            #     raise ValueError(
+            #         "The model did not return a loss from the inputs, only the following keys: "
+            #         f"{','.join(outputs.keys())}. For reference, the inputs it received are {','.join(inputs.keys())}."
+            #     )
+            # # We don't use .loss here since the model may return tuples instead of ModelOutput.
+            # loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
 
             # add asd score to loss
             # loss += (1 - asd_score)
-            loss += asd_score
+            # loss += asd_score
+            loss = torch.tensor(asd_score, requires_grad=True)
 
             return (loss, outputs) if return_outputs else loss
 
