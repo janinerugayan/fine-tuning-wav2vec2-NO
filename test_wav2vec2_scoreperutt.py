@@ -16,7 +16,7 @@ import argparse
 from dtw import *
 from scipy.spatial import distance
 from datetime import date
-from jiwer import wer 
+from jiwer import wer
 
 
 
@@ -246,12 +246,14 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--original_model",     type=str)
 parser.add_argument("--fine_tuned_model",   type=str)
 parser.add_argument("--log_file_name",      type=str)
+parser.add_argument("--log_dir",            type=str)
 parser.add_argument("--get_orig_model_results", type=int)
 args = parser.parse_args()
 
 model_name = args.original_model
 finetuned_model_dir = args.fine_tuned_model
-log_file = "./logs/" + args.log_file_name + "_" + date_today + ".txt"
+log_dir = args.log_dir
+log_file = log_dir + args.log_file_name + "_" + date_today + ".txt"
 
 
 rundkast_dir = ["../../datasets/NordTrans_TUL/test/Rundkast/"]
@@ -301,7 +303,7 @@ if args.get_orig_model_results == 1:
     print("RUNDKAST")
     Rundkast_transcriptions = dataset_rundkast.map(get_transcriptions)
     Rundkast_results = Rundkast_transcriptions.map(get_score_per_utt)
-    Rundkast_results.to_csv("./logs/Rundkast_results_" + original_model_name + "_" + date_today + ".csv" )
+    Rundkast_results.to_csv(log_dir + "Rundkast_results_" + original_model_name + "_" + date_today + ".csv" )
     wer_score_mean = sum(Rundkast_results["wer"]) / len(Rundkast_results["wer"])
     asd_score_mean = sum(Rundkast_results["asd"]) / len(Rundkast_results["asd"])
     print("Test Score (original) WER: {:.3f}".format(wer_score_mean))
@@ -313,7 +315,7 @@ if args.get_orig_model_results == 1:
     print("NB TALE")
     NBTale_transcriptions = dataset_nbtale.map(get_transcriptions)
     NBTale_results = NBTale_transcriptions.map(get_score_per_utt)
-    NBTale_results.to_csv("./logs/NBTale_results_" + original_model_name + "_" + date_today + ".csv" )
+    NBTale_results.to_csv(log_dir + "NBTale_results_" + original_model_name + "_" + date_today + ".csv" )
     wer_score_mean = sum(NBTale_results["wer"]) / len(NBTale_results["wer"])
     asd_score_mean = sum(NBTale_results["asd"]) / len(NBTale_results["asd"])
     print("Test Score (original) WER: {:.3f}".format(wer_score_mean))
@@ -325,7 +327,7 @@ if args.get_orig_model_results == 1:
     print("STORTINGET")
     Stortinget_transcriptions = dataset_stortinget.map(get_transcriptions)
     Stortinget_results = Stortinget_transcriptions.map(get_score_per_utt)
-    Stortinget_results.to_csv("./logs/Stortinget_results_" + original_model_name + "_" + date_today + ".csv" )
+    Stortinget_results.to_csv(log_dir + "Stortinget_results_" + original_model_name + "_" + date_today + ".csv" )
     wer_score_mean = sum(Stortinget_results["wer"]) / len(Stortinget_results["wer"])
     asd_score_mean = sum(Stortinget_results["asd"]) / len(Stortinget_results["asd"])
     print("Test Score (original) WER: {:.3f}".format(wer_score_mean))
@@ -345,7 +347,7 @@ model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
 print("RUNDKAST")
 Rundkast_transcriptions = dataset_rundkast.map(get_transcriptions)
 Rundkast_results = Rundkast_transcriptions.map(get_score_per_utt)
-Rundkast_results.to_csv("./logs/Rundkast_results_" + finetuned_model_name + "_" + date_today + ".csv" )
+Rundkast_results.to_csv(log_dir + "Rundkast_results_" + finetuned_model_name + "_" + date_today + ".csv" )
 wer_score_mean = sum(Rundkast_results["wer"]) / len(Rundkast_results["wer"])
 asd_score_mean = sum(Rundkast_results["asd"]) / len(Rundkast_results["asd"])
 print("Test Score (finetuned) WER: {:.3f}".format(wer_score_mean))
@@ -357,7 +359,7 @@ with open(log_file, "a") as f:
 print("NB TALE")
 NBTale_transcriptions = dataset_nbtale.map(get_transcriptions)
 NBTale_results = NBTale_transcriptions.map(get_score_per_utt)
-NBTale_results.to_csv("./logs/NBTale_results_" + finetuned_model_name + "_" + date_today + ".csv" )
+NBTale_results.to_csv(log_dir + "NBTale_results_" + finetuned_model_name + "_" + date_today + ".csv" )
 wer_score_mean = sum(NBTale_results["wer"]) / len(NBTale_results["wer"])
 asd_score_mean = sum(NBTale_results["asd"]) / len(NBTale_results["asd"])
 print("Test Score (finetuned) WER: {:.3f}".format(wer_score_mean))
@@ -369,7 +371,7 @@ with open(log_file, "a") as f:
 print("STORTINGET")
 Stortinget_transcriptions = dataset_stortinget.map(get_transcriptions)
 Stortinget_results = Stortinget_transcriptions.map(get_score_per_utt)
-Stortinget_results.to_csv("./logs/Stortinget_results_" + finetuned_model_name + "_" + date_today + ".csv" )
+Stortinget_results.to_csv(log_dir + "Stortinget_results_" + finetuned_model_name + "_" + date_today + ".csv" )
 wer_score_mean = sum(Stortinget_results["wer"]) / len(Stortinget_results["wer"])
 asd_score_mean = sum(Stortinget_results["asd"]) / len(Stortinget_results["asd"])
 print("Test Score (finetuned) WER: {:.3f}".format(wer_score_mean))

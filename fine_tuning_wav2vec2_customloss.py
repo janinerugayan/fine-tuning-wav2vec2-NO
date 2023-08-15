@@ -332,12 +332,12 @@ if args.use_asd_metric == 1:
             #         f"{','.join(outputs.keys())}. For reference, the inputs it received are {','.join(inputs.keys())}."
             #     )
             # # We don't use .loss here since the model may return tuples instead of ModelOutput.
-            # loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
+            loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
 
             # add asd score to loss
             # loss += (1 - asd_score)
             # loss += asd_score
-            loss = torch.tensor(asd_score, requires_grad=True)
+            loss += torch.tensor(asd_score, requires_grad=True)
 
             return (loss, outputs) if return_outputs else loss
 
