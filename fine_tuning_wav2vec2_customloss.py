@@ -337,7 +337,7 @@ if args.use_asd_metric == 1:
             # add asd score to loss
             # loss += (1 - asd_score)
             # loss += asd_score
-            loss += torch.tensor(asd_score, requires_grad=True)
+            loss = (0.5 * loss) + (0.5 * torch.tensor(asd_score, requires_grad=True))
 
             return (loss, outputs) if return_outputs else loss
 
