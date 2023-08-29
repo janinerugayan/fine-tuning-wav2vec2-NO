@@ -336,7 +336,7 @@ if args.use_asd_metric == 1:
             loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
 
             # add asd score to loss
-            loss = ((1 - args.lambda_asd) * loss) + (args.lambda_asd * torch.tensor(asd_score, requires_grad=True))
+            loss = ((1 - args.lambda_asd) * loss) + (args.lambda_asd * torch.tensor(asd_score, requires_grad=True, device="cuda"))
 
             return (loss, outputs) if return_outputs else loss
 
