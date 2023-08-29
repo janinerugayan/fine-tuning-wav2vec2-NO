@@ -14,18 +14,22 @@
 #                         --metric_to_use="wer"\
 #                         --extract_transcriptions=0
 
+# cd logs
+# mkdir CustomLoss_V2
+# cd ../
+
+# python test_wav2vec2_scoreperutt.py --original_model="NbAiLab/nb-wav2vec2-300m-bokmaal"\
+#                                     --fine_tuned_model="../../fine_tuned_models/wav2vec2_NO_origLossV2"\
+#                                     --log_file_name="test_log_wav2vec2_NO_origLossV2"\
+#                                     --log_dir="./logs/CustomLoss_V2/"\
+#                                     --get_orig_model_results=1\
+
 cd logs
-mkdir CustomLoss_V2
+mkdir CustomLoss_V4
 cd ../
 
 python test_wav2vec2_scoreperutt.py --original_model="NbAiLab/nb-wav2vec2-300m-bokmaal"\
-                                    --fine_tuned_model="../../fine_tuned_models/wav2vec2_NO_origLossV2"\
-                                    --log_file_name="test_log_wav2vec2_NO_origLossV2"\
-                                    --log_dir="./logs/CustomLoss_V2/"\
-                                    --get_orig_model_results=0\
-
-python test_wav2vec2_scoreperutt.py --original_model="NbAiLab/nb-wav2vec2-300m-bokmaal"\
-                                    --fine_tuned_model="../../fine_tuned_models/wav2vec2_NO_customLossV2"\
-                                    --log_file_name="test_log_wav2vec2_NO_customLossV2"\
-                                    --log_dir="./logs/CustomLoss_V2/"\
+                                    --fine_tuned_model="../../fine_tuned_models/wav2vec2_NO_customLossV4"\
+                                    --log_file_name="test_log_wav2vec2_NO_customLossV4"\
+                                    --log_dir="./logs/CustomLoss_V4/"\
                                     --get_orig_model_results=0\

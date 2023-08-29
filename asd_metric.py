@@ -51,6 +51,8 @@ class ASD(datasets.Metric):
         asd_score = 0
         num_ref_hyp_pairs = 0
         for ref_text, hyp_text in zip(reference, hypothesis):
+            ref_text = ref_text.replace("[UNK]", "")  # removes the [UNK] token in the reference text, observed during training
+            hyp_text = hyp_text.replace("[UNK]", "")
             tokenized_ref = tokenizer(ref_text, padding=True, truncation=True, max_length=512, return_tensors="pt")
             tokenized_hyp = tokenizer(hyp_text, padding=True, truncation=True, max_length=512, return_tensors="pt")
             with torch.no_grad():

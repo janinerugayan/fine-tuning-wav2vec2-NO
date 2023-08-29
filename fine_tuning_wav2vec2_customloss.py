@@ -126,6 +126,7 @@ parser.add_argument("--fine_tuned_model_ver",   type=str)
 parser.add_argument("--export_model_dir",       type=str)
 parser.add_argument("--num_train_epochs",       type=int)
 parser.add_argument("--learning_rate",          type=float)
+parser.add_argument("--lambda_asd",            type=float)
 parser.add_argument("--use_asd_metric",         type=int)
 parser.add_argument("--wandb_name",             type=str)
 args = parser.parse_args()
@@ -335,9 +336,7 @@ if args.use_asd_metric == 1:
             loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
 
             # add asd score to loss
-            # loss += (1 - asd_score)
-            # loss += asd_score
-            loss = (0.5 * loss) + (0.5 * torch.tensor(asd_score, requires_grad=True))
+            loss = ((1 - args.lambda_asd) * loss) + (args.lambda_asd * torch.tensor(asd_score, requires_grad=True))
 
             return (loss, outputs) if return_outputs else loss
 
