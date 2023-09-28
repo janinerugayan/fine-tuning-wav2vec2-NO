@@ -337,6 +337,8 @@ if args.use_asd_metric == 1:
             for i in range(2):
                 predicted_text = pred_str.text[i*8:(i+1)*8]
                 reference_text = label_str[i*8:(i+1)*8]
+                print(predicted_text)
+                print(reference_text)
                 asd_score = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer,
                                                reference=reference_text, hypothesis=predicted_text)
                 if i == 0:
