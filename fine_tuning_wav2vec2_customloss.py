@@ -25,6 +25,8 @@ import argparse
 import types
 # from aulus_notification_bot import NotificationBot
 
+# enabled to find the operation that failed to compute its gradient
+torch.autograd.set_detect_anomaly(True)
 
 
 chars_to_ignore_regex = '[\,\?\.\!\-\;\:\"\*]'
@@ -128,7 +130,7 @@ parser.add_argument("--learning_rate",          type=float)
 parser.add_argument("--lambda_asd",             type=float)
 parser.add_argument("--use_asd_metric",         type=int)
 parser.add_argument("--wandb_name",             type=str)
-# parser.add_argument("--export_log",             type=str)
+parser.add_argument("--export_log",             type=str)
 args = parser.parse_args()
 
 wandb.init(project="fine-tuning-wav2vec2-NO_customLoss", entity="janinerugayan", name=args.wandb_name)
@@ -291,6 +293,8 @@ def compute_metrics(pred):
     pred_str = processor.batch_decode(pred_logits)
     label_str = processor_woLM.batch_decode(pred.label_ids, group_tokens=False)  # we do not want to group tokens when computing the metrics
     wer = wer_metric.compute(predictions=pred_str.text, references=label_str) # worked in fine-tuning versions 1 to 14 (wer metric)
+    # print(pred_str.text[0])
+    # print(label_str[0])
     return {"wer": wer}
 
 if args.use_asd_metric == 1:
@@ -326,13 +330,6 @@ if args.use_asd_metric == 1:
             label_str = processor_woLM.batch_decode(labels, group_tokens=False)  # we do not want to group tokens when computing the metrics
 
             loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
-            # print(loss)
-            # asd_score = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=label_str, hypothesis=pred_str.text)
-            # asd_loss = torch.tensor(asd_score, requires_grad=True, device="cuda")
-            # print(asd_loss)
-            # add asd score to loss
-            # loss = ((1 - args.lambda_asd) * loss) + (args.lambda_asd * asd_loss)
-            # loss = loss * asd_loss
 
             for i in range(2):
                 predicted_text = pred_str.text[i*8:(i+1)*8]
@@ -341,19 +338,33 @@ if args.use_asd_metric == 1:
                                                reference=reference_text, hypothesis=predicted_text)
                 if i == 0:
                     asd_loss_batch1 = torch.tensor(asd_score, requires_grad=True, device="cuda")
+                    # asd_loss_batch1 = asd_score
                 else:
                     asd_loss_batch2 = torch.tensor(asd_score, requires_grad=True, device="cuda")
+                    # asd_loss_batch2 = asd_score
 
-            loss[0] = loss[0] + asd_loss_batch1
-            loss[1] = loss[1] + asd_loss_batch2
+            # loss[0] = ((1 - args.lambda_asd) * loss[0]) + (args.lambda_asd * asd_loss_batch1)
+            # loss[1] = ((1 - args.lambda_asd) * loss[1]) + (args.lambda_asd * asd_loss_batch2)
 
-                # loss[i] = ((1 - args.lambda_asd) * loss[i]) + (args.lambda_asd * asd_score)
-                # with open(args.export_log, "a") as f:
-                #     f.write(str(asd_score) + ";" + str(loss[i]) + "\n")
+            # loss[0] = asd_loss_batch1 + loss[0]
+            # loss[1] = asd_loss_batch2 + loss[1]
+
+            # adding lambda without lambda ratio
+            new_loss = torch.cat(((asd_loss_batch1 + loss[0]).reshape(1), (asd_loss_batch2 + loss[1]).reshape(1)), dim=0)
+
+            # lambda ablation
+            # new_loss = torch.cat((((args.lambda_asd * asd_loss_batch1) + ((1 - args.lambda_asd) * loss[0])).reshape(1),
+                                #   ((args.lambda_asd * asd_loss_batch2) + ((1 - args.lambda_asd) * loss[1])).reshape(1)), dim=0)
 
             # print(loss)
+            # print(new_loss)
 
-            return (loss, outputs) if return_outputs else loss
+            # with open(args.export_log, "a") as f:
+            #     f.write(str(asd_loss_batch1.item()) + ";" + str(new_loss[0].item()) + "\n")
+            #     f.write(str(asd_loss_batch2.item()) + ";" + str(new_loss[1].item()) + "\n")
+
+            return (new_loss, outputs) if return_outputs else new_loss
+            # return (loss, outputs) if return_outputs else loss
 
     # trainer.compute_loss = types.MethodType(custom_compute_loss, trainer)
 
