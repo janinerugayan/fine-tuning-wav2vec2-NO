@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Union
 import wandb
 import argparse
 import types
-# from aulus_notification_bot import NotificationBot
+from new_modules import Wav2Vec2ForCTCwithASD
 
 # enabled to find the operation that failed to compute its gradient
 torch.autograd.set_detect_anomaly(True)
@@ -151,20 +151,17 @@ model_name = args.original_model
 processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
 processor_woLM = Wav2Vec2Processor.from_pretrained(model_name)
 
-model = Wav2Vec2ForCTC.from_pretrained(
-    model_name,
-    ctc_loss_reduction="mean",
-    pad_token_id=processor.tokenizer.pad_token_id,
-)
-
-# if args.use_asd_metric == 1:
-#     model = # INSERT CUSTOM wav2vec2 model definition HERE!!!
-# else:
-#     model = Wav2Vec2ForCTC.from_pretrained(
-#         model_name,
-#         ctc_loss_reduction="mean",
-#         pad_token_id=processor.tokenizer.pad_token_id,
-#     )
+if args.use_asd_metric == 1:
+    model = Wav2Vec2ForCTCwithASD.from_pretrained(
+        model_name,
+        pad_token_id=processor.tokenizer.pad_token_id,
+    )
+else:
+    model = Wav2Vec2ForCTC.from_pretrained(
+        model_name,
+        ctc_loss_reduction="mean",
+        pad_token_id=processor.tokenizer.pad_token_id,
+    )
 
 # feature extraction does not need further fine-tuning
 model.freeze_feature_encoder()
@@ -302,83 +299,12 @@ def compute_metrics(pred):
     pred_str = processor.batch_decode(pred_logits)
     label_str = processor_woLM.batch_decode(pred.label_ids, group_tokens=False)  # we do not want to group tokens when computing the metrics
     wer = wer_metric.compute(predictions=pred_str.text, references=label_str) # worked in fine-tuning versions 1 to 14 (wer metric)
-    print(pred_str.text[0])
-    print(label_str[0])
+    # print(pred_str.text[0])
+    # print(label_str[0])
     return {"wer": wer}
 
 
-if args.use_asd_metric == 1:
-    print("Setting up Custom Trainer")
-
-    # https://huggingface.co/transformers/main_classes/logging.html
-    # verbosity set to print errors only, by default it is set to 30 = error and warnings
-    transformers.logging.set_verbosity(40)
-    # The bare Bert Model transformer outputting raw hidden-states without any specific head on top.
-    metric_modelname = 'ltg/norbert2'  # changed to latest version of NorBERT (20-Mar-2023)
-    metric_model = BertModel.from_pretrained(metric_modelname)
-    metric_tokenizer = AutoTokenizer.from_pretrained(metric_modelname)
-
-    asd_metric = load_metric("asd_metric.py")
-
-    class CustomTrainer(Trainer):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-
-        def compute_loss(self, model, inputs, return_outputs=False):
-
-            """
-            How the loss is computed by Trainer. By default, all models return the loss in the first element.
-            Subclass and override for custom behavior.
-            """
-
-            outputs = model(**inputs)
-
-            output_logits = outputs["logits"].detach()
-            pred_logits = self._gather_and_numpify(output_logits, "eval_preds")
-            pred_str = processor.batch_decode(pred_logits)
-            labels = inputs["labels"]
-            label_str = processor_woLM.batch_decode(labels, group_tokens=False)  # we do not want to group tokens when computing the metrics
-
-            loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
-
-            for i in range(2):
-                predicted_text = pred_str.text[i*8:(i+1)*8]
-                reference_text = label_str[i*8:(i+1)*8]
-                asd_score = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer,
-                                               reference=reference_text, hypothesis=predicted_text)
-                if i == 0:
-                    asd_loss_batch1 = torch.tensor(asd_score, requires_grad=True, device="cuda")
-                    # asd_loss_batch1 = asd_score
-                else:
-                    asd_loss_batch2 = torch.tensor(asd_score, requires_grad=True, device="cuda")
-                    # asd_loss_batch2 = asd_score
-
-            # loss[0] = ((1 - args.lambda_asd) * loss[0]) + (args.lambda_asd * asd_loss_batch1)
-            # loss[1] = ((1 - args.lambda_asd) * loss[1]) + (args.lambda_asd * asd_loss_batch2)
-
-            # loss[0] = asd_loss_batch1 + loss[0]
-            # loss[1] = asd_loss_batch2 + loss[1]
-
-            # adding lambda without lambda ratio
-            new_loss = torch.cat(((asd_loss_batch1 + loss[0]).reshape(1), (asd_loss_batch2 + loss[1]).reshape(1)), dim=0)
-
-            # lambda ablation
-            # new_loss = torch.cat((((args.lambda_asd * asd_loss_batch1) + ((1 - args.lambda_asd) * loss[0])).reshape(1),
-                                #   ((args.lambda_asd * asd_loss_batch2) + ((1 - args.lambda_asd) * loss[1])).reshape(1)), dim=0)
-
-            # print(loss)
-            # print(new_loss)
-
-            # with open(args.export_log, "a") as f:
-            #     f.write(str(asd_loss_batch1.item()) + ";" + str(new_loss[0].item()) + "\n")
-            #     f.write(str(asd_loss_batch2.item()) + ";" + str(new_loss[1].item()) + "\n")
-
-            return (new_loss, outputs) if return_outputs else new_loss
-            # return (loss, outputs) if return_outputs else loss
-
-    # trainer.compute_loss = types.MethodType(custom_compute_loss, trainer)
-
-    trainer = CustomTrainer(
+trainer = Trainer(
         model=model,
         data_collator=data_collator,
         args=training_args,
@@ -387,30 +313,6 @@ if args.use_asd_metric == 1:
         eval_dataset=dataset["test"],
         tokenizer=processor.feature_extractor,
     )
-
-else:
-    print("Setting up the trainer")
-
-    trainer = Trainer(
-        model=model,
-        data_collator=data_collator,
-        args=training_args,
-        compute_metrics=compute_metrics,
-        train_dataset=dataset["train"],
-        eval_dataset=dataset["test"],
-        tokenizer=processor.feature_extractor,
-    )
-
-
-# trainer = Trainer(
-#         model=model,
-#         data_collator=data_collator,
-#         args=training_args,
-#         compute_metrics=compute_metrics,
-#         train_dataset=dataset["train"],
-#         eval_dataset=dataset["test"],
-#         tokenizer=processor.feature_extractor,
-#     )
 
 
 
@@ -436,41 +338,4 @@ model.save_pretrained(save_directory=finetuned_model_dir)
 processor.save_pretrained(save_directory=finetuned_model_dir)
 
 
-# NOTIFICATION BOT
-# notify_me = NotificationBot()
-# notify_me.notify(args.fine_tuned_model_ver)
 
-
-
-
-# ---------------------------------------------------
-# EVALUATION
-# ---------------------------------------------------
-
-# torch.cuda.empty_cache()
-# print("Evaluation starts")
-#
-# print("Loading fine-tuned model")
-# # processor = Wav2Vec2Processor.from_pretrained(finetuned_model_dir)
-# processor = Wav2Vec2ProcessorWithLM.from_pretrained(finetuned_model_dir)
-# model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
-#
-#
-# def map_to_result(batch):
-#     audiofile = batch["path"]
-#     reference_text = batch["text"]
-#     audio, rate = librosa.load(audiofile, sr=16000)
-#     input_values = processor(audio, sampling_rate=rate, return_tensors='pt').input_values
-#     with torch.no_grad():
-#         logits = model(input_values).logits
-#     pred_ids = torch.argmax(logits, dim=-1)
-#     batch["asr_str"] = processor.batch_decode(pred_ids)[0]
-#     batch["ref_str"] = reference_text
-#     return batch
-#
-#
-# results = raw_dataset["test"].map(map_to_result, remove_columns=raw_dataset["test"].column_names)
-#
-# print("Test WER: {:.3f}".format(wer_metric.compute(predictions=results["asr_str"], references=results["ref_str"])))
-#
-# show_random_elements(results)

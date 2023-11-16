@@ -157,15 +157,6 @@ model = Wav2Vec2ForCTC.from_pretrained(
     pad_token_id=processor.tokenizer.pad_token_id,
 )
 
-# if args.use_asd_metric == 1:
-#     model = # INSERT CUSTOM wav2vec2 model definition HERE!!!
-# else:
-#     model = Wav2Vec2ForCTC.from_pretrained(
-#         model_name,
-#         ctc_loss_reduction="mean",
-#         pad_token_id=processor.tokenizer.pad_token_id,
-#     )
-
 # feature extraction does not need further fine-tuning
 model.freeze_feature_encoder()
 
@@ -302,8 +293,6 @@ def compute_metrics(pred):
     pred_str = processor.batch_decode(pred_logits)
     label_str = processor_woLM.batch_decode(pred.label_ids, group_tokens=False)  # we do not want to group tokens when computing the metrics
     wer = wer_metric.compute(predictions=pred_str.text, references=label_str) # worked in fine-tuning versions 1 to 14 (wer metric)
-    print(pred_str.text[0])
-    print(label_str[0])
     return {"wer": wer}
 
 
@@ -348,33 +337,12 @@ if args.use_asd_metric == 1:
                                                reference=reference_text, hypothesis=predicted_text)
                 if i == 0:
                     asd_loss_batch1 = torch.tensor(asd_score, requires_grad=True, device="cuda")
-                    # asd_loss_batch1 = asd_score
                 else:
                     asd_loss_batch2 = torch.tensor(asd_score, requires_grad=True, device="cuda")
-                    # asd_loss_batch2 = asd_score
 
-            # loss[0] = ((1 - args.lambda_asd) * loss[0]) + (args.lambda_asd * asd_loss_batch1)
-            # loss[1] = ((1 - args.lambda_asd) * loss[1]) + (args.lambda_asd * asd_loss_batch2)
-
-            # loss[0] = asd_loss_batch1 + loss[0]
-            # loss[1] = asd_loss_batch2 + loss[1]
-
-            # adding lambda without lambda ratio
             new_loss = torch.cat(((asd_loss_batch1 + loss[0]).reshape(1), (asd_loss_batch2 + loss[1]).reshape(1)), dim=0)
 
-            # lambda ablation
-            # new_loss = torch.cat((((args.lambda_asd * asd_loss_batch1) + ((1 - args.lambda_asd) * loss[0])).reshape(1),
-                                #   ((args.lambda_asd * asd_loss_batch2) + ((1 - args.lambda_asd) * loss[1])).reshape(1)), dim=0)
-
-            # print(loss)
-            # print(new_loss)
-
-            # with open(args.export_log, "a") as f:
-            #     f.write(str(asd_loss_batch1.item()) + ";" + str(new_loss[0].item()) + "\n")
-            #     f.write(str(asd_loss_batch2.item()) + ";" + str(new_loss[1].item()) + "\n")
-
             return (new_loss, outputs) if return_outputs else new_loss
-            # return (loss, outputs) if return_outputs else loss
 
     # trainer.compute_loss = types.MethodType(custom_compute_loss, trainer)
 
