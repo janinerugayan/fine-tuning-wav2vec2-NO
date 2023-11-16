@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional, Union
 import wandb
 import argparse
 import types
+from customCTCwithASD import compute_CTCloss_withASD
 # from aulus_notification_bot import NotificationBot
 
 # enabled to find the operation that failed to compute its gradient
@@ -322,27 +323,35 @@ if args.use_asd_metric == 1:
 
             outputs = model(**inputs)
 
-            output_logits = outputs["logits"].detach()
-            pred_logits = self._gather_and_numpify(output_logits, "eval_preds")
+            output_logits = outputs["logits"]
+            pred_logits = self._gather_and_numpify(output_logits.detach(), "eval_preds")
             pred_str = processor.batch_decode(pred_logits)
             labels = inputs["labels"]
             label_str = processor_woLM.batch_decode(labels, group_tokens=False)  # we do not want to group tokens when computing the metrics
 
-            loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
-
             for i in range(2):
                 predicted_text = pred_str.text[i*8:(i+1)*8]
                 reference_text = label_str[i*8:(i+1)*8]
-                asd_score = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer,
-                                               reference=reference_text, hypothesis=predicted_text)
+                logits = output_logits[i*8:(i+1)*8]
+                label_ids = labels[i*8:(i+1)*8]
                 if i == 0:
-                    asd_loss_batch1 = torch.tensor(asd_score, requires_grad=True, device="cuda")
+                    asd_loss_batch1 = compute_CTCloss_withASD(reference_text=reference_text,
+                                                              predicted_text=predicted_text,
+                                                              ref_label_ids=label_ids,
+                                                              output_logits=logits,
+                                                              asd_model=metric_model,
+                                                              asd_tokenizer=metric_tokenizer)
                 else:
-                    asd_loss_batch2 = torch.tensor(asd_score, requires_grad=True, device="cuda")
+                    asd_loss_batch2 = compute_CTCloss_withASD(reference_text=reference_text,
+                                                              predicted_text=predicted_text,
+                                                              ref_label_ids=label_ids,
+                                                              output_logits=logits,
+                                                              asd_model=metric_model,
+                                                              asd_tokenizer=metric_tokenizer)
 
-            new_loss = torch.cat(((asd_loss_batch1 + loss[0]).reshape(1), (asd_loss_batch2 + loss[1]).reshape(1)), dim=0)
+            loss = torch.cat(((asd_loss_batch1).reshape(1), (asd_loss_batch2).reshape(1)), dim=0)
 
-            return (new_loss, outputs) if return_outputs else new_loss
+            return (loss, outputs) if return_outputs else loss
 
     # trainer.compute_loss = types.MethodType(custom_compute_loss, trainer)
 
@@ -370,17 +379,6 @@ else:
     )
 
 
-# trainer = Trainer(
-#         model=model,
-#         data_collator=data_collator,
-#         args=training_args,
-#         compute_metrics=compute_metrics,
-#         train_dataset=dataset["train"],
-#         eval_dataset=dataset["test"],
-#         tokenizer=processor.feature_extractor,
-#     )
-
-
 
 
 # ---------------------------------------------------
@@ -403,42 +401,3 @@ print("Saving fine-tuned model")
 model.save_pretrained(save_directory=finetuned_model_dir)
 processor.save_pretrained(save_directory=finetuned_model_dir)
 
-
-# NOTIFICATION BOT
-# notify_me = NotificationBot()
-# notify_me.notify(args.fine_tuned_model_ver)
-
-
-
-
-# ---------------------------------------------------
-# EVALUATION
-# ---------------------------------------------------
-
-# torch.cuda.empty_cache()
-# print("Evaluation starts")
-#
-# print("Loading fine-tuned model")
-# # processor = Wav2Vec2Processor.from_pretrained(finetuned_model_dir)
-# processor = Wav2Vec2ProcessorWithLM.from_pretrained(finetuned_model_dir)
-# model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
-#
-#
-# def map_to_result(batch):
-#     audiofile = batch["path"]
-#     reference_text = batch["text"]
-#     audio, rate = librosa.load(audiofile, sr=16000)
-#     input_values = processor(audio, sampling_rate=rate, return_tensors='pt').input_values
-#     with torch.no_grad():
-#         logits = model(input_values).logits
-#     pred_ids = torch.argmax(logits, dim=-1)
-#     batch["asr_str"] = processor.batch_decode(pred_ids)[0]
-#     batch["ref_str"] = reference_text
-#     return batch
-#
-#
-# results = raw_dataset["test"].map(map_to_result, remove_columns=raw_dataset["test"].column_names)
-#
-# print("Test WER: {:.3f}".format(wer_metric.compute(predictions=results["asr_str"], references=results["ref_str"])))
-#
-# show_random_elements(results)

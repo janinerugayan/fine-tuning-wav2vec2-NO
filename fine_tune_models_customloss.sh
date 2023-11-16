@@ -1,38 +1,20 @@
-# cd ../../model_ckpts/
-# mkdir fine-tuning_wav2vec2_origLossV9
-# cd fine-tuning_wav2vec2_origLossV9
-# mkdir runs
-# cd ../../fine_tuned_models/
-# mkdir wav2vec2_NO_origLossV9
-# cd ../github/fine-tuning-wav2vec2-NO/
-
-# python3 fine_tuning_wav2vec2_customloss.py --original_model="NbAiLab/nb-wav2vec2-300m-bokmaal"\
-#                                            --fine_tuned_model_ver="fine-tuning_wav2vec2_origLossV9"\
-#                                            --export_model_dir="../../fine_tuned_models/wav2vec2_NO_origLossV9/"\
-#                                            --num_train_epochs=3\
-#                                            --learning_rate=1e-4\
-#                                            --lambda_asd=0.1\
-#                                            --use_asd_metric=0\
-#                                            --wandb_name="V9_origLoss_allDataSmall_300m_3ep"\
-#                                            --export_log="./loss_logs/V9_origLoss.txt"
-
 cd ../../model_ckpts/
-mkdir fine-tuning_wav2vec2_customLossV13
-cd fine-tuning_wav2vec2_customLossV13
+mkdir fine-tuning_wav2vec2_customLossTRIAL
+cd fine-tuning_wav2vec2_customLossTRIAL
 mkdir runs
 cd ../../fine_tuned_models/
-mkdir wav2vec2_NO_customLossV13
+mkdir wav2vec2_NO_customLossTRIAL
 cd ../github/fine-tuning-wav2vec2-NO/
 
-python3 fine_tuning_wav2vec2_customloss.py --original_model="NbAiLab/nb-wav2vec2-300m-bokmaal"\
-                                           --fine_tuned_model_ver="fine-tuning_wav2vec2_customLossV13"\
-                                           --export_model_dir="../../fine_tuned_models/wav2vec2_NO_customLossV13/"\
+python3 fine_tuning_wav2vec2_customlossV3.py --original_model="NbAiLab/nb-wav2vec2-300m-bokmaal"\
+                                           --fine_tuned_model_ver="fine-tuning_wav2vec2_customLossTRIAL"\
+                                           --export_model_dir="../../fine_tuned_models/wav2vec2_NO_customLossTRIAL/"\
                                            --num_train_epochs=10\
                                            --learning_rate=1e-4\
                                            --lambda_asd=0.1\
                                            --use_asd_metric=1\
-                                           --wandb_name="V13_customLoss_allDataSmall_300m_10ep"\
-                                           --export_log="./loss_logs/V13_customLoss.txt"
+                                           --wandb_name="TRIAL_customLoss_allDataSmall_300m_10ep"\
+                                           --export_log="./loss_logs/TRIAL_customLoss.txt"
 
 # for n in {1..5}
 # do
