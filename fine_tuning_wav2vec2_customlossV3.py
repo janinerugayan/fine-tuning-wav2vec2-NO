@@ -27,7 +27,9 @@ from customCTCwithASD import compute_CTCloss_withASD
 # from aulus_notification_bot import NotificationBot
 
 # enabled to find the operation that failed to compute its gradient
-torch.autograd.set_detect_anomaly(True)
+# torch.autograd.set_detect_anomaly(True)
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 chars_to_ignore_regex = '[\,\?\.\!\-\;\:\"\*]'

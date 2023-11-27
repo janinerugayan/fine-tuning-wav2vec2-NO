@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Union
 import wandb
 import argparse
 import types
-from new_modules import Wav2Vec2ForCTCwithASD
+from new_modules_v2 import Wav2Vec2ForCTCwithASD
 
 # enabled to find the operation that failed to compute its gradient
 torch.autograd.set_detect_anomaly(True)

@@ -24,6 +24,9 @@ import torch
 from scipy.spatial import distance
 
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
 # returning ASD cosdist alignment to reference tokens
 def get_asd_align(ref, hyp, asd_model, asd_tokenizer):
     tokenized_ref = asd_tokenizer(ref, padding=True, truncation=True, max_length=512, return_tensors="pt")
@@ -89,16 +92,6 @@ def get_per_token_cosdist(asd_alignments):
                     regrouped_tokens.append(item)
             elif "##" in item[1]:  # parts of the word
                 wordpiece_group.append(item)
-    # for i, item in enumerate(clean_alignment):
-    #     if item[1] != "[CLS]" and item[1] != "[SEP]":
-    #         if "##" not in item[1] and "##" in clean_alignment[i+1][1]:  # start of a group of wordpieces
-    #             wordpiece_group = []
-    #             wordpiece_group.append(item)
-    #             regrouped_tokens.append(wordpiece_group)
-    #         elif "##" in item[1]:  # parts of the word
-    #             wordpiece_group.append(item)
-    #         else:  # not wordpieces
-    #             regrouped_tokens.append(item)
 
     # COLLAPSE WORDPIECES INTO WORDS & TAKE AVERAGE OF COSDIST
     tokens_compressed = []
@@ -117,14 +110,16 @@ def get_per_token_cosdist(asd_alignments):
 def get_cosdist_for_ctc(tokens_compressed, label_ids):
     cosdist_for_ctc = []
     token_count = 0
-    for label in label_ids:
+    print(label_ids)
+    for i, label in enumerate(label_ids):
         if label == 0 and len(cosdist_for_ctc) == 0:
             cosdist_for_ctc.append(0)
         elif label != 0:
             cosdist_for_ctc.append(tokens_compressed[token_count][2])
         elif label == 0:
-            token_count += 1
             cosdist_for_ctc.append(0)
+            if i < (len(label_ids)-1) and label_ids[i+1] != 0:
+                token_count += 1
     if len(cosdist_for_ctc) != len(label_ids):
         print("mismatch in number of tokens compressed and tokens identified from label ids")
         print("cosdist: ", len(cosdist_for_ctc), "label_ids: ", len(label_ids))
@@ -134,106 +129,117 @@ def get_cosdist_for_ctc(tokens_compressed, label_ids):
 
 
 # INCORPORATING ASD COSDIST VALUES TO THE CTC CALCULATION
-def ctc_loss_with_ASD(params, seq, cosdist_for_ctc, blank=0):
-    seqLen = seq.shape[0]  # length of label sequence
-    L = 2*seqLen + 1  # length of the label sequence with blanks
-    T = params.shape[1]  # length of utterance (time)
+# and defining it as a custom autograd function
+class MyCTC(torch.autograd.Function):
 
-    alphas = torch.zeros((L,T)).double()
-    # betas = torch.zeros((L,T))
+    @staticmethod
+    def forward(ctx, params, seq, cosdist_for_ctc, blank=0):
+        seqLen = seq.shape[0]  # length of label sequence
+        L = 2*seqLen + 1  # length of the label sequence with blanks
+        T = params.shape[1]  # length of utterance (time)
 
-    # convert logits to log probs
-    params = params - (torch.max(params, dim=0)[0])
-    params = torch.exp(params)
-    params = params / torch.sum(params, dim=0)
+        alphas = torch.zeros((L,T), device=device).double()
+        betas = torch.zeros((L,T), device=device).double()
 
-    # initialize alphas and forward pass
-    alphas[0,0] = params[blank,0]
-    alphas[1,0] = params[seq[0],0]
-    c = torch.sum(alphas[:,0])
-    alphas[:,0] = alphas[:,0].clone() / c
-    llForward = torch.log(c)
+        # convert logits to log probs
+        params = params - (torch.max(params, dim=0)[0])
+        params = torch.exp(params)
+        params = params / torch.sum(params, dim=0)
 
-    for t in range(1,T):
-        start = max(0,L-2*(T-t))
-        end = min(2*t+2,L)
-        for s in range(start,L):
+        # initialize alphas and forward pass
+        alphas[0,0] = params[blank,0]
+        alphas[1,0] = params[seq[0],0]
+        c = torch.sum(alphas[:,0])
+        alphas[:,0] = alphas[:,0] / c
+        llForward = torch.log(c)
+
+        for t in range(1,T):
+            start = max(0,L-2*(T-t))
+            end = min(2*t+2,L)
+            for s in range(start,L):
+                l = int((s-1)/2)
+                # blank
+                if s%2 == 0:
+                    if s==0:
+                        alphas[s,t] = alphas[s,t-1] * params[blank,t]
+                    else:
+                        alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1]) * params[blank,t]
+                # same label twice
+                elif s == 1 or seq[l] == seq[l-1]:
+                    alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1]) * params[seq[l],t] * (1 - cosdist_for_ctc[l])
+                else:
+                    alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1] + alphas[s-2,t-1]) * params[seq[l],t] * (1 - cosdist_for_ctc[l])
+
+            # normalize at current time (prevent underflow)
+            c = torch.sum(alphas[start:end,t])
+            alphas[start:end,t] = alphas[start:end,t] / c
+            llForward = llForward + torch.log(c)
+
+        # initialize betas and backwards pass
+        betas[-1,-1] = params[blank,-1]
+        betas[-2,-1] = params[seq[-1],-1]
+        c = torch.sum(betas[:,-1])
+        betas[:,-1] = betas[:,-1] / c
+        llBackward = torch.log(c)
+
+        for t in range(T-2,-1,-1):
+            start = max(0,L-2*(T-t))
+            end = min(2*t+2,L)
+            for s in range(end-1,-1,-1):
+                l = int((s-1)/2)
+                # blank
+                if s%2 == 0:
+                    if s == L-1:
+                        betas[s,t] = betas[s,t+1] * params[blank,t]
+                    else:
+                        betas[s,t] = (betas[s,t+1] + betas[s+1,t+1]) * params[blank,t]
+                # same label twice
+                elif s == L-2 or seq[l] == seq[l+1]:
+                    betas[s,t] = (betas[s,t+1] + betas[s+1,t+1]) * params[seq[l],t] * (1 - cosdist_for_ctc[l])
+                else:
+                    betas[s,t] = (betas[s,t+1] + betas[s+1,t+1] + betas[s+2,t+1]) * params[seq[l],t] * (1 - cosdist_for_ctc[l])
+
+            # normalize at current time
+            c = torch.sum(betas[start:end,t])
+            betas[start:end,t] = betas[start:end,t] / c
+            llBackward = llBackward + torch.log(c)
+
+        ctx.save_for_backward(params, seq, alphas, betas, llForward, llBackward)
+
+        return -llForward
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        params, seq, alphas, betas, llForward, llBackward = ctx.saved_tensors
+        blank = 0
+        seqLen = seq.shape[0]  # length of label sequence
+        L = 2*seqLen + 1  # length of the label sequence with blanks
+
+        # Compute gradient with respect to unnormalized input parameters
+        grad = torch.zeros(params.shape, device=device).double()
+        ab = alphas*betas
+        for s in range(L):
             l = int((s-1)/2)
             # blank
             if s%2 == 0:
-                if s==0:
-                    alphas[s,t] = alphas[s,t-1].clone() * params[blank,t]
-                else:
-                    alphas[s,t] = (alphas[s,t-1].clone() + alphas[s-1,t-1].clone()) * params[blank,t]
-            # same label twice
-            elif s == 1 or seq[l] == seq[l-1]:
-                alphas[s,t] = (alphas[s,t-1].clone() + alphas[s-1,t-1].clone()) * params[seq[l],t] * (1 - cosdist_for_ctc[l])  # scale 0 to 1
+                grad[blank,:] = grad[blank,:] + ab[s,:]
+                ab[s,:] = ab[s,:]/params[blank,:]
             else:
-                alphas[s,t] = (alphas[s,t-1].clone() + alphas[s-1,t-1].clone() + alphas[s-2,t-1].clone()) * params[seq[l],t] * (1 - cosdist_for_ctc[l])
+                grad[seq[l],:] = grad[seq[l],:] + ab[s,:]
+                ab[s,:] = ab[s,:]/(params[seq[l],:])
+        absum = torch.sum(ab,axis=0)
 
-        # normalize at current time (prevent underflow)
-        c = torch.sum(alphas[start:end,t])
-        alphas[start:end,t] = alphas[start:end,t].clone() / c
-        llForward = llForward + torch.log(c)
-
-    # initialize betas and backwards pass
-    # betas[-1,-1] = params[blank,-1]
-    # betas[-2,-1] = params[seq[-1],-1]
-    # c = torch.sum(betas[:,-1])
-    # betas[:,-1] = betas[:,-1].clone() / c
-    # llBackward = torch.log(c)
-
-    # for t in range(T-2,-1,-1):
-    #     start = max(0,L-2*(T-t))
-    #     end = min(2*t+2,L)
-    #     for s in range(end-1,-1,-1):
-    #         l = int((s-1)/2)
-    #         # blank
-    #         if s%2 == 0:
-    #             if s == L-1:
-    #                 betas[s,t] = betas[s,t+1].clone() * params[blank,t]
-    #             else:
-    #                 betas[s,t] = (betas[s,t+1].clone() + betas[s+1,t+1].clone()) * params[blank,t]
-    #         # same label twice
-    #         elif s == L-2 or seq[l] == seq[l+1]:
-    #             betas[s,t] = (betas[s,t+1].clone() + betas[s+1,t+1].clone()) * params[seq[l],t] * (1 - cosdist_for_ctc[l])
-    #         else:
-    #             betas[s,t] = (betas[s,t+1].clone() + betas[s+1,t+1].clone() + betas[s+2,t+1].clone()) * params[seq[l],t] * (1 - cosdist_for_ctc[l])
-
-    #     # normalize at current time
-    #     c = torch.sum(betas[start:end,t])
-    #     betas[start:end,t] = betas[start:end,t].clone() / c
-    #     llBackward = llBackward + torch.log(c)
-
-    # Compute gradient with respect to unnormalized input parameters
-    # grad = torch.zeros(params.shape)
-    # ab = alphas*betas
-    # for s in range(L):
-    #     l = int((s-1)/2)
-    #     # blank
-    #     if s%2 == 0:
-    #         grad[blank,:] = grad[blank,:] + ab[s,:]
-    #         ab[s,:] = ab[s,:]/params[blank,:]
-    #     else:
-    #         grad[seq[l],:] = grad[seq[l],:] + ab[s,:]
-    #         ab[s,:] = ab[s,:]/(params[seq[l],:])
-    # absum = torch.sum(ab,axis=0)
-
-    # Check for underflow or zeros in denominator of gradient
-    # if llDiff > 1e-5 or torch.sum(absum==0) > 0:
-    #     print("Diff in forward/backward LL : %f"%llDiff)
-        # print("Zeros found : (%d/%d)"%(torch.sum(absum==0),absum.shape[0]))
-        # return (-llForward, grad)
-    #     return -llForward
-    # else:
-    #     # grad = params - grad / (params * absum)
-    #     # return (-llForward, grad)
-    #     return -llForward
-    return -llForward
+        llDiff = torch.abs(llForward-llBackward)
+        if llDiff > 1e-5 or torch.sum(absum==0) > 0:
+            return (grad, None, None)
+        else:
+            grad = params - grad / (params * absum)
+            return (grad, None, None)
 
 
 def compute_CTCloss_withASD(reference_text, predicted_text, ref_label_ids, output_logits, asd_model, asd_tokenizer):
-    loss = 0
+    myctcloss = MyCTC.apply
+    loss = torch.zeros((1), requires_grad=True, device=device).double()
     for i in range(len(reference_text)):
         ref_text = reference_text[i].replace("[UNK]", "")
         pred_text = predicted_text[i].replace("[UNK]", "")
@@ -245,9 +251,8 @@ def compute_CTCloss_withASD(reference_text, predicted_text, ref_label_ids, outpu
         print(i, pred_text)
         ref_alignments = get_asd_align(ref_text, pred_text, asd_model, asd_tokenizer)
         tokens_compressed = get_per_token_cosdist(ref_alignments)
-        print(tokens_compressed)
-        print(flattened_labels)
         cosdist_for_ctc = get_cosdist_for_ctc(tokens_compressed, flattened_labels)
-        loss = loss + ctc_loss_with_ASD(logits.transpose(1,0), flattened_labels, cosdist_for_ctc, blank=0)
+        loss = loss + myctcloss(logits.transpose(1,0), flattened_labels, cosdist_for_ctc)
     loss = loss / len(reference_text)
+    print(loss)
     return loss
