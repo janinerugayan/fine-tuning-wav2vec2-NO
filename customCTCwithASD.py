@@ -110,22 +110,22 @@ def get_per_token_cosdist(asd_alignments):
 def get_cosdist_for_ctc(tokens_compressed, label_ids):
     cosdist_for_ctc = []
     token_count = 0
-    print(label_ids)
     for i, label in enumerate(label_ids):
-        if label == 0 and len(cosdist_for_ctc) == 0:
-            cosdist_for_ctc.append(0)
-        elif label != 0:
-            cosdist_for_ctc.append(tokens_compressed[token_count][2])
-        elif label == 0:
-            cosdist_for_ctc.append(0)
-            if i < (len(label_ids)-1) and label_ids[i+1] != 0:
-                token_count += 1
-    if len(cosdist_for_ctc) != len(label_ids):
-        print("mismatch in number of tokens compressed and tokens identified from label ids")
-        print("cosdist: ", len(cosdist_for_ctc), "label_ids: ", len(label_ids))
-        return cosdist_for_ctc
-    else:
-        return cosdist_for_ctc
+        # for the first utterance
+        if len(cosdist_for_ctc) == 0 or all(cosdist == 0 for cosdist in cosdist_for_ctc):
+            if label == 0 or label > 29:
+                cosdist_for_ctc.append(0)
+            else:
+                cosdist_for_ctc.append(tokens_compressed[token_count][2])
+        # for the next utterances
+        else:
+            if label == 0:
+                cosdist_for_ctc.append(0)
+                if i < (len(label_ids)-1) and label_ids[i+1] != 0:
+                    token_count += 1
+            else:
+                cosdist_for_ctc.append(tokens_compressed[token_count][2])
+    return cosdist_for_ctc
 
 
 # INCORPORATING ASD COSDIST VALUES TO THE CTC CALCULATION
