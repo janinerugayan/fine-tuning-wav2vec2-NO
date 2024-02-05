@@ -25,11 +25,28 @@
 #                                     --get_orig_model_results=1\
 
 cd logs
-mkdir CustomLoss_V4
+mkdir CustomLoss_V11
 cd ../
 
 python test_wav2vec2_scoreperutt.py --original_model="NbAiLab/nb-wav2vec2-300m-bokmaal"\
-                                    --fine_tuned_model="../../fine_tuned_models/wav2vec2_NO_customLossV4"\
-                                    --log_file_name="test_log_wav2vec2_NO_customLossV4"\
-                                    --log_dir="./logs/CustomLoss_V4/"\
+                                    --fine_tuned_model="../../fine_tuned_models/wav2vec2_NO_customLossV11"\
+                                    --log_file_name="test_log_wav2vec2_NO_customLossV11"\
+                                    --log_dir="./logs/CustomLoss_V11/"\
                                     --get_orig_model_results=0\
+
+
+# for n in {2..5}
+# do
+#     echo TESTING MODEL CUSTOM LOSS w/ LAMBDA 0.$n
+
+#     cd logs/lambda_trials/
+#     mkdir CustomLoss_V8_lambda0p${n}
+#     cd ../../
+
+#     python test_wav2vec2_scoreperutt.py --original_model="NbAiLab/nb-wav2vec2-300m-bokmaal"\
+#                                         --fine_tuned_model="../../fine_tuned_models/lambda_trials/wav2vec2_NO_customLossV8_lambda_0$n"\
+#                                         --log_file_name="test_log_wav2vec2_NO_customLossV8_lambda_0$n"\
+#                                         --log_dir="./logs/lambda_trials/CustomLoss_V8_lambda0p${n}/"\
+#                                         --get_orig_model_results=0
+
+# done

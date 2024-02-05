@@ -268,8 +268,8 @@ repo_local_dir = "../../model_ckpts/" + args.fine_tuned_model_ver + "/"
 training_args = TrainingArguments(
   output_dir=repo_local_dir,
   group_by_length=True,
-  per_device_train_batch_size=4,  # orig: 4
-  per_device_eval_batch_size=4,  # orig: 4
+  per_device_train_batch_size=8,  # orig: 4
+  per_device_eval_batch_size=8,  # orig: 4
   eval_accumulation_steps=100,
   evaluation_strategy="steps",
   num_train_epochs=args.num_train_epochs,  # orig: 30
@@ -285,7 +285,7 @@ training_args = TrainingArguments(
   push_to_hub=False,
   seed=42,
   data_seed=42,
-  report_to="wandb"
+#   report_to="wandb"
 )
 
 
@@ -330,6 +330,15 @@ if args.use_asd_metric == 1:
             pred_str = processor.batch_decode(pred_logits)
             labels = inputs["labels"]
             label_str = processor_woLM.batch_decode(labels, group_tokens=False)  # we do not want to group tokens when computing the metrics
+
+            # print(output_logits.shape)
+            # for i, logits in enumerate(output_logits):
+            #     token_ids = torch.argmax(logits, dim=1)
+            #     not_letters = []
+            #     for token in token_ids:
+            #         if token > 29:
+            #             not_letters.append(token.values)
+            #     print(set(not_letters))
 
             for i in range(2):
                 predicted_text = pred_str.text[i*8:(i+1)*8]

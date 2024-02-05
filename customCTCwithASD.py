@@ -47,7 +47,6 @@ def get_asd_align(ref, hyp, asd_model, asd_tokenizer):
     hyp_embedding_sequence = torch.stack(all_layers_hypothesis).mean(dim=0)
 
     alignment = dtw(hyp_embedding_sequence, ref_embedding_sequence, dist_method=distance.cosine, keep_internals=True)
-    num_tokens = len(ref_embedding_sequence)
 
     ref_alignment_idxs = alignment.index2
     hyp_alignment_idxs = alignment.index1
@@ -121,7 +120,7 @@ def get_cosdist_for_ctc(tokens_compressed, label_ids):
         else:
             if label == 0:
                 cosdist_for_ctc.append(0)
-                if i < (len(label_ids)-1) and label_ids[i+1] != 0:
+                if i < (len(label_ids)-1) and 0 < label_ids[i+1] < 30:
                     token_count += 1
             else:
                 cosdist_for_ctc.append(tokens_compressed[token_count][2])
@@ -133,8 +132,11 @@ def get_cosdist_for_ctc(tokens_compressed, label_ids):
 class MyCTC(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, params, seq, cosdist_for_ctc, blank=0):
-        seqLen = seq.shape[0]  # length of label sequence
+    def forward(ctx, logits, seq, cosdist_for_ctc, blank=0):
+        params = logits.transpose(1,0)
+        # seqLen = seq.shape[0]  # length of label sequence
+        seqLen = len(seq)
+        # print(seq.shape[0], seqLen)
         L = 2*seqLen + 1  # length of the label sequence with blanks
         T = params.shape[1]  # length of utterance (time)
 
@@ -166,9 +168,11 @@ class MyCTC(torch.autograd.Function):
                         alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1]) * params[blank,t]
                 # same label twice
                 elif s == 1 or seq[l] == seq[l-1]:
-                    alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1]) * params[seq[l],t] * (1 - cosdist_for_ctc[l])
+                    # alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1]) * params[seq[l],t] * (1 + cosdist_for_ctc[l])
+                    alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1]) * params[seq[l],t]
                 else:
-                    alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1] + alphas[s-2,t-1]) * params[seq[l],t] * (1 - cosdist_for_ctc[l])
+                    # alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1] + alphas[s-2,t-1]) * params[seq[l],t] * (1 + cosdist_for_ctc[l])
+                    alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1] + alphas[s-2,t-1]) * params[seq[l],t]
 
             # normalize at current time (prevent underflow)
             c = torch.sum(alphas[start:end,t])
@@ -195,9 +199,11 @@ class MyCTC(torch.autograd.Function):
                         betas[s,t] = (betas[s,t+1] + betas[s+1,t+1]) * params[blank,t]
                 # same label twice
                 elif s == L-2 or seq[l] == seq[l+1]:
-                    betas[s,t] = (betas[s,t+1] + betas[s+1,t+1]) * params[seq[l],t] * (1 - cosdist_for_ctc[l])
+                    # betas[s,t] = (betas[s,t+1] + betas[s+1,t+1]) * params[seq[l],t] * (1 + cosdist_for_ctc[l])
+                    betas[s,t] = (betas[s,t+1] + betas[s+1,t+1]) * params[seq[l],t]
                 else:
-                    betas[s,t] = (betas[s,t+1] + betas[s+1,t+1] + betas[s+2,t+1]) * params[seq[l],t] * (1 - cosdist_for_ctc[l])
+                    # betas[s,t] = (betas[s,t+1] + betas[s+1,t+1] + betas[s+2,t+1]) * params[seq[l],t] * (1 + cosdist_for_ctc[l])
+                    betas[s,t] = (betas[s,t+1] + betas[s+1,t+1] + betas[s+2,t+1]) * params[seq[l],t]
 
             # normalize at current time
             c = torch.sum(betas[start:end,t])
@@ -206,39 +212,91 @@ class MyCTC(torch.autograd.Function):
 
         ctx.save_for_backward(params, seq, alphas, betas, llForward, llBackward)
 
+        # ctc_loss_mean = -llForward / seqLen
+
+        # return ctc_loss_mean
+
         return -llForward
 
     @staticmethod
     def backward(ctx, grad_output):
         params, seq, alphas, betas, llForward, llBackward = ctx.saved_tensors
         blank = 0
-        seqLen = seq.shape[0]  # length of label sequence
+        # seqLen = seq.shape[0]  # length of label sequence
+        seqLen = len(seq)
         L = 2*seqLen + 1  # length of the label sequence with blanks
+        numphones = params.shape[0]  # number of labels
+        T = params.shape[1]  # length of utterance (time)
 
+        # =============================
+        # STANFORD-CTC GRAD CALCULATION
         # Compute gradient with respect to unnormalized input parameters
-        grad = torch.zeros(params.shape, device=device).double()
-        ab = alphas*betas
-        for s in range(L):
-            l = int((s-1)/2)
-            # blank
-            if s%2 == 0:
-                grad[blank,:] = grad[blank,:] + ab[s,:]
-                ab[s,:] = ab[s,:]/params[blank,:]
-            else:
-                grad[seq[l],:] = grad[seq[l],:] + ab[s,:]
-                ab[s,:] = ab[s,:]/(params[seq[l],:])
-        absum = torch.sum(ab,axis=0)
+        # grad = torch.zeros(params.shape, device=device).double()
+        # ab = alphas*betas
+        # for s in range(L):
+        #     l = int((s-1)/2)
+        #     # blank
+        #     if s%2 == 0:
+        #         grad[blank,:] = grad[blank,:] + ab[s,:]
+        #         ab[s,:] = ab[s,:]/params[blank,:]
+        #     else:
+        #         grad[seq[l],:] = grad[seq[l],:] + ab[s,:]
+        #         ab[s,:] = ab[s,:]/(params[seq[l],:])
+        # absum = torch.sum(ab,axis=0)
 
-        llDiff = torch.abs(llForward-llBackward)
-        if llDiff > 1e-5 or torch.sum(absum==0) > 0:
-            return (grad, None, None)
-        else:
-            grad = params - grad / (params * absum)
-            return (grad, None, None)
+        # from older implementation:
+        # llDiff = torch.abs(llForward-llBackward)
+        # if llDiff > 1e-5 or torch.sum(absum==0) > 0:
+        #     return (grad, None, None)
+        # else:
+        #     grad = params - grad / (params * absum)
+        #     return (grad, None, None)
+
+        # grad = params - grad / (params * absum)
+
+        # from ctc_fast.pyx:
+        # for t in range(T):
+        #     for s in range(numphones):
+        #         tmp = (params[s,t]*absum[t])
+        #         if tmp > 0:
+        #             grad[s,t] = params[s,t] - grad[s,t] / tmp
+        #         else:
+        #             grad[s,t] = params[s,t]
+
+        # =============================
+        # NUMPY-CTC GRAD CALCULATION
+        padded_labels = torch.zeros((L))
+        j = 0
+        for i in range(L):
+            if i%2 == 0:
+                padded_labels[i] = blank
+            else:
+                padded_labels[i] = seq[j]
+                j += 1
+
+        grad = torch.zeros(params.shape, device=device).double()
+
+        score_last = alphas[L-1, T-1]
+        score_before_last = betas[L-2, T-1]
+        p_l_given_ctc = score_last + score_before_last
+
+        for t in range(T):
+            for k in range(numphones):
+                d_p_d_ytk = 0
+                lb_lk = np.nonzero(list(map(lambda x: 1 if k in x else 0, padded_labels)))[0]
+                for s in lb_lk:
+                    d_p_d_ytk += alphas[s, t] * betas[s, t]
+
+                d_p_d_ytk /= (params[k, t] ** 2)
+                d_lnp_d_ytk = (1. / p_l_given_ctc) * d_p_d_ytk
+                grad[k, t] = d_lnp_d_ytk
+
+        transposed_grad = grad.transpose(1,0)
+
+        return (transposed_grad, None, None)
 
 
 def compute_CTCloss_withASD(reference_text, predicted_text, ref_label_ids, output_logits, asd_model, asd_tokenizer):
-    myctcloss = MyCTC.apply
     loss = torch.zeros((1), requires_grad=True, device=device).double()
     for i in range(len(reference_text)):
         ref_text = reference_text[i].replace("[UNK]", "")
@@ -252,7 +310,10 @@ def compute_CTCloss_withASD(reference_text, predicted_text, ref_label_ids, outpu
         ref_alignments = get_asd_align(ref_text, pred_text, asd_model, asd_tokenizer)
         tokens_compressed = get_per_token_cosdist(ref_alignments)
         cosdist_for_ctc = get_cosdist_for_ctc(tokens_compressed, flattened_labels)
-        loss = loss + myctcloss(logits.transpose(1,0), flattened_labels, cosdist_for_ctc)
-    loss = loss / len(reference_text)
-    print(loss)
+        myctcloss = MyCTC.apply
+        custom_loss = myctcloss(logits, flattened_labels, cosdist_for_ctc)
+        loss = loss + custom_loss
+        # print("custom loss:", custom_loss, "accumulated loss:", loss)
+    # loss = loss / len(reference_text)
+    print("BATCH LOSS:", loss)
     return loss

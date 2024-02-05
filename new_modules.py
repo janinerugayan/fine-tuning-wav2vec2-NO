@@ -6,6 +6,7 @@ from torch import nn
 import torch.nn.functional as F
 
 
+# returning ASD cosdist alignment to reference tokens
 def get_asd_align(ref, hyp, asd_model, asd_tokenizer):
     tokenized_ref = asd_tokenizer(ref, padding=True, truncation=True, max_length=512, return_tensors="pt")
     tokenized_hyp = asd_tokenizer(hyp, padding=True, truncation=True, max_length=512, return_tensors="pt")
@@ -43,7 +44,6 @@ def get_asd_align(ref, hyp, asd_model, asd_tokenizer):
 def get_per_token_cosdist(asd_alignments):
     # collapse repetitions in tokens and wordpieces in the HYP alignment from ASD
     clean_alignment = []
-    collapsed_indices = []
     for i, item in enumerate(asd_alignments):
         if i < (len(asd_alignments) - 1):
             if len(clean_alignment) == 0:
@@ -61,14 +61,15 @@ def get_per_token_cosdist(asd_alignments):
     regrouped_tokens = []
     for i, item in enumerate(clean_alignment):
         if item[1] != "[CLS]" and item[1] != "[SEP]":
-            if "##" not in item[1] and "##" in clean_alignment[i+1][1]:  # start of a group of wordpieces
-                wordpiece_group = []
-                wordpiece_group.append(item)
-                regrouped_tokens.append(wordpiece_group)
+            if "##" not in item[1]:
+                if i < (len(clean_alignment)-1) and "##" in clean_alignment[i+1][1]:  # start of a group of wordpieces
+                    wordpiece_group = []
+                    wordpiece_group.append(item)
+                    regrouped_tokens.append(wordpiece_group)
+                else:
+                    regrouped_tokens.append(item)
             elif "##" in item[1]:  # parts of the word
                 wordpiece_group.append(item)
-            else:  # not wordpieces
-                regrouped_tokens.append(item)
 
     # COLLAPSE WORDPIECES INTO WORDS & TAKE AVERAGE OF COSDIST
     tokens_compressed = []
@@ -83,17 +84,21 @@ def get_per_token_cosdist(asd_alignments):
     return tokens_compressed
 
 
+# aligning ASD cosdist values to label sequence
 def get_cosdist_for_ctc(tokens_compressed, label_ids):
     cosdist_for_ctc = []
     token_count = 0
     for label in label_ids:
-        if label == 0:
+        if label == 0 and len(cosdist_for_ctc) == 0:
+            cosdist_for_ctc.append(0)
+        elif label != 0:
+            cosdist_for_ctc.append(tokens_compressed[token_count][2])
+        elif label == 0:
             token_count += 1
             cosdist_for_ctc.append(0)
-        else:
-            cosdist_for_ctc.append(tokens_compressed[token_count][2])
     if len(cosdist_for_ctc) != len(label_ids):
         print("mismatch in number of tokens compressed and tokens identified from label ids")
+        print("cosdist: ", len(cosdist_for_ctc), "label_ids: ", len(label_ids))
         return cosdist_for_ctc
     else:
         return cosdist_for_ctc
@@ -105,8 +110,8 @@ def calculate_CTC_with_ASD(params, seq, cosdist_for_ctc, blank=0):
     L = 2*seqLen + 1  # length of the label sequence with blanks
     T = params.shape[1]  # length of utterance (time)
 
-    alphas = torch.zeros((L,T))
-    betas = torch.zeros((L,T))
+    alphas = torch.zeros((L,T)).double()
+    betas = torch.zeros((L,T)).double()
 
     # convert logits to log probs
     params = params - (torch.max(params, dim=0)[0])
@@ -198,12 +203,14 @@ def calculate_CTC_with_ASD(params, seq, cosdist_for_ctc, blank=0):
 
 def ctc_loss_with_ASD(batch_logits, batch_labels, asd_model, asd_tokenizer, processor, processor_woLM, blank=0):
     ctc_loss_with_asd = 0
+    reference_text = processor_woLM.batch_decode(batch_labels, group_tokens=False)
+    predicted_text = processor.batch_decode(batch_logits.detach())
     for i in range(batch_logits.shape[0]):
-        logits = batch_logits[i]
         labels = batch_labels[i]
-        ref = processor_woLM.batch_decode(labels, group_tokens=False)[0]
-        hyp = processor.batch_decode(logits.detach()).text[0]
-        print(ref, hyp)
+        ref = reference_text[i].replace("[UNK]", "")
+        hyp = predicted_text[i].replace("[UNK]", "")
+        print(i, ref)
+        print(i, hyp)
         ref_alignments = get_asd_align(ref, hyp, asd_model, asd_tokenizer)
         tokens_compressed = get_per_token_cosdist(ref_alignments)
         cosdist_for_ctc = get_cosdist_for_ctc(tokens_compressed, labels)
@@ -343,12 +350,12 @@ class Wav2Vec2ForCTCwithASD(Wav2Vec2PreTrainedModel):
             flattened_targets = labels.masked_select(labels_mask)
 
             print(logits.shape)
-            print(labels.shape)
+            print(flattened_targets.shape)
 
             # ctc loss with ASD incorporated
             loss = ctc_loss_with_ASD(
                 logits,
-                labels,
+                flattened_targets,
                 self.asd_model,
                 self.asd_tokenizer,
                 self.processor,
