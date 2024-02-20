@@ -1,3 +1,6 @@
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # or "0,1" for multiple GPUs
+
 import collections
 if not hasattr(collections, "Container"):
     import collections.abc
@@ -29,7 +32,7 @@ from customCTCwithASD import compute_CTCloss_withASD
 # enabled to find the operation that failed to compute its gradient
 # torch.autograd.set_detect_anomaly(True)
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 chars_to_ignore_regex = '[\,\?\.\!\-\;\:\"\*]'
@@ -159,6 +162,7 @@ model = Wav2Vec2ForCTC.from_pretrained(
     ctc_loss_reduction="mean",
     pad_token_id=processor.tokenizer.pad_token_id,
 )
+model = model.to(device)
 
 # feature extraction does not need further fine-tuning
 model.freeze_feature_encoder()
@@ -268,16 +272,16 @@ repo_local_dir = "../../model_ckpts/" + args.fine_tuned_model_ver + "/"
 training_args = TrainingArguments(
   output_dir=repo_local_dir,
   group_by_length=True,
-  per_device_train_batch_size=8,  # orig: 4
-  per_device_eval_batch_size=8,  # orig: 4
+  per_device_train_batch_size=1,  # orig: 8
+  per_device_eval_batch_size=1,  # orig: 8
   eval_accumulation_steps=100,
   evaluation_strategy="steps",
   num_train_epochs=args.num_train_epochs,  # orig: 30
   fp16=True,  # orig: True
   gradient_checkpointing=True,
-  save_steps=100,  # orig: 500
-  eval_steps=100,  # orig: 500
-  logging_steps=100,  # orig: 500
+  save_steps=500,  # orig: 500
+  eval_steps=500,  # orig: 500
+  logging_steps=500,  # orig: 500
   learning_rate=args.learning_rate,  # orig: 1e-4
   weight_decay=0.005,
   warmup_steps=2000,  # orig: 1000
@@ -285,7 +289,7 @@ training_args = TrainingArguments(
   push_to_hub=False,
   seed=42,
   data_seed=42,
-#   report_to="wandb"
+  report_to="wandb"
 )
 
 
@@ -306,11 +310,11 @@ if args.use_asd_metric == 1:
     # verbosity set to print errors only, by default it is set to 30 = error and warnings
     transformers.logging.set_verbosity(40)
     # The bare Bert Model transformer outputting raw hidden-states without any specific head on top.
-    metric_modelname = 'ltg/norbert2'  # changed to latest version of NorBERT (20-Mar-2023)
-    metric_model = BertModel.from_pretrained(metric_modelname)
-    metric_tokenizer = AutoTokenizer.from_pretrained(metric_modelname)
+    # metric_modelname = 'ltg/norbert2'  # changed to latest version of NorBERT (20-Mar-2023)
+    # metric_model = BertModel.from_pretrained(metric_modelname)
+    # metric_tokenizer = AutoTokenizer.from_pretrained(metric_modelname)
 
-    asd_metric = load_metric("asd_metric.py")
+    # asd_metric = load_metric("asd_metric.py")
 
     class CustomTrainer(Trainer):
         def __init__(self, *args, **kwargs):
@@ -331,6 +335,9 @@ if args.use_asd_metric == 1:
             labels = inputs["labels"]
             label_str = processor_woLM.batch_decode(labels, group_tokens=False)  # we do not want to group tokens when computing the metrics
 
+            print(pred_str.text)
+            print(label_str)
+
             # print(output_logits.shape)
             # for i, logits in enumerate(output_logits):
             #     token_ids = torch.argmax(logits, dim=1)
@@ -340,27 +347,32 @@ if args.use_asd_metric == 1:
             #             not_letters.append(token.values)
             #     print(set(not_letters))
 
-            for i in range(2):
-                predicted_text = pred_str.text[i*8:(i+1)*8]
-                reference_text = label_str[i*8:(i+1)*8]
-                logits = output_logits[i*8:(i+1)*8]
-                label_ids = labels[i*8:(i+1)*8]
-                if i == 0:
-                    asd_loss_batch1 = compute_CTCloss_withASD(reference_text=reference_text,
-                                                              predicted_text=predicted_text,
-                                                              ref_label_ids=label_ids,
-                                                              output_logits=logits,
-                                                              asd_model=metric_model,
-                                                              asd_tokenizer=metric_tokenizer)
-                else:
-                    asd_loss_batch2 = compute_CTCloss_withASD(reference_text=reference_text,
-                                                              predicted_text=predicted_text,
-                                                              ref_label_ids=label_ids,
-                                                              output_logits=logits,
-                                                              asd_model=metric_model,
-                                                              asd_tokenizer=metric_tokenizer)
+            # for i in range(2):
+            #     predicted_text = pred_str.text[i*8:(i+1)*8]
+            #     reference_text = label_str[i*8:(i+1)*8]
+            #     logits = output_logits[i*8:(i+1)*8]
+            #     label_ids = labels[i*8:(i+1)*8]
+            #     if i == 0:
+            #         asd_loss_batch1 = compute_CTCloss_withASD(reference_text=reference_text,
+            #                                                   predicted_text=predicted_text,
+            #                                                   ref_label_ids=label_ids,
+            #                                                   output_logits=logits,
+            #                                                   asd_model=metric_model,
+            #                                                   asd_tokenizer=metric_tokenizer)
+            #     else:
+            #         asd_loss_batch2 = compute_CTCloss_withASD(reference_text=reference_text,
+            #                                                   predicted_text=predicted_text,
+            #                                                   ref_label_ids=label_ids,
+            #                                                   output_logits=logits,
+            #                                                   asd_model=metric_model,
+            #                                                   asd_tokenizer=metric_tokenizer)
 
-            loss = torch.cat(((asd_loss_batch1).reshape(1), (asd_loss_batch2).reshape(1)), dim=0)
+            # loss = torch.cat(((asd_loss_batch1).reshape(1), (asd_loss_batch2).reshape(1)), dim=0)
+
+            loss = compute_CTCloss_withASD(reference_text=[label_str[0]],
+                                                            predicted_text=[pred_str.text[0]],
+                                                            ref_label_ids=[labels[0]],
+                                                            output_logits=[output_logits[0]])
 
             return (loss, outputs) if return_outputs else loss
 

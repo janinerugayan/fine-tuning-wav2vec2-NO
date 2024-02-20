@@ -24,7 +24,7 @@ import torch
 from scipy.spatial import distance
 
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 # returning ASD cosdist alignment to reference tokens
@@ -132,10 +132,10 @@ def get_cosdist_for_ctc(tokens_compressed, label_ids):
 class MyCTC(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, logits, seq, cosdist_for_ctc, blank=0):
+    def forward(ctx, logits, seq, blank=0):
         params = logits.transpose(1,0)
-        # seqLen = seq.shape[0]  # length of label sequence
-        seqLen = len(seq)
+        seqLen = seq.shape[0]  # length of label sequence
+        # seqLen = len(seq)
         # print(seq.shape[0], seqLen)
         L = 2*seqLen + 1  # length of the label sequence with blanks
         T = params.shape[1]  # length of utterance (time)
@@ -147,6 +147,8 @@ class MyCTC(torch.autograd.Function):
         params = params - (torch.max(params, dim=0)[0])
         params = torch.exp(params)
         params = params / torch.sum(params, dim=0)
+        # log probs calculated here not the same with log probs input to pytorch CTC function
+        # but they both produce the same CTC loss
 
         # initialize alphas and forward pass
         alphas[0,0] = params[blank,0]
@@ -222,8 +224,8 @@ class MyCTC(torch.autograd.Function):
     def backward(ctx, grad_output):
         params, seq, alphas, betas, llForward, llBackward = ctx.saved_tensors
         blank = 0
-        # seqLen = seq.shape[0]  # length of label sequence
-        seqLen = len(seq)
+        seqLen = seq.shape[0]  # length of label sequence
+        # seqLen = len(seq)
         L = 2*seqLen + 1  # length of the label sequence with blanks
         numphones = params.shape[0]  # number of labels
         T = params.shape[1]  # length of utterance (time)
@@ -244,17 +246,37 @@ class MyCTC(torch.autograd.Function):
         #         ab[s,:] = ab[s,:]/(params[seq[l],:])
         # absum = torch.sum(ab,axis=0)
 
-        # from older implementation:
+        # # Check for underflow or zeros in denominator of gradient
         # llDiff = torch.abs(llForward-llBackward)
         # if llDiff > 1e-5 or torch.sum(absum==0) > 0:
-        #     return (grad, None, None)
+        #     transposed_grad = grad.transpose(1,0)
+        #     return (transposed_grad, None, None)
         # else:
         #     grad = params - grad / (params * absum)
-        #     return (grad, None, None)
+        #     transposed_grad = grad.transpose(1,0)
+        #     return (transposed_grad, None, None)
 
-        # grad = params - grad / (params * absum)
+        # ============= ctc_fast.pyx grad implementation =============
+        grad = torch.zeros(params.shape, device=device)
+        ab = alphas*betas
 
-        # from ctc_fast.pyx:
+        for s in range(L):
+            # blank
+            if s%2 == 0:
+                for t in range(T):
+                    grad[blank,t] += ab[s,t]
+                    if ab[s,t] != 0:
+                        ab[s,t] = ab[s,t]/params[blank,t]
+            else:
+                for t in range(T):
+                    k = int((s-1)/2)
+                    grad[seq[k],t] += ab[s,t]
+                    if ab[s,t] != 0:
+                        ab[s,t] = ab[s,t]/(params[seq[k],t])
+
+        absum = torch.sum(ab, axis=0)
+
+        grad = params - grad / (params * absum)
         # for t in range(T):
         #     for s in range(numphones):
         #         tmp = (params[s,t]*absum[t])
@@ -263,41 +285,81 @@ class MyCTC(torch.autograd.Function):
         #         else:
         #             grad[s,t] = params[s,t]
 
+        return (grad.transpose(1,0), None)
+
         # =============================
         # NUMPY-CTC GRAD CALCULATION
-        padded_labels = torch.zeros((L))
-        j = 0
-        for i in range(L):
-            if i%2 == 0:
-                padded_labels[i] = blank
-            else:
-                padded_labels[i] = seq[j]
-                j += 1
+        # padded_labels = torch.zeros((L))
+        # j = 0
+        # for i in range(L):
+        #     if i%2 == 0:
+        #         padded_labels[i] = blank
+        #     else:
+        #         padded_labels[i] = seq[j]
+        #         j += 1
 
-        grad = torch.zeros(params.shape, device=device).double()
+        # grad = torch.zeros(params.shape, device=device).double()
 
-        score_last = alphas[L-1, T-1]
-        score_before_last = betas[L-2, T-1]
-        p_l_given_ctc = score_last + score_before_last
+        # score_last = alphas[L-1, T-1]
+        # score_before_last = betas[L-2, T-1]
+        # p_l_given_ctc = score_last + score_before_last
 
-        for t in range(T):
-            for k in range(numphones):
-                d_p_d_ytk = 0
-                lb_lk = np.nonzero(list(map(lambda x: 1 if k in x else 0, padded_labels)))[0]
-                for s in lb_lk:
-                    d_p_d_ytk += alphas[s, t] * betas[s, t]
+        # for t in range(T):
+        #     for k in range(numphones):
+        #         d_p_d_ytk = 0
+        #         lab_lk = np.nonzero(list(map(lambda x: 1 if k in x else 0, padded_labels)))[0]
+        #         for s in lab_lk:
+        #             d_p_d_ytk += alphas[s, t] * betas[s, t]
 
-                d_p_d_ytk /= (params[k, t] ** 2)
-                d_lnp_d_ytk = (1. / p_l_given_ctc) * d_p_d_ytk
-                grad[k, t] = d_lnp_d_ytk
+        #         d_p_d_ytk /= (params[k, t] ** 2)
+        #         # d_lnp_d_ytk = (1. / p_l_given_ctc) * d_p_d_ytk
+        #         # grad[k, t] = d_lnp_d_ytk
+        #         grad[k, t] = d_p_d_ytk
 
-        transposed_grad = grad.transpose(1,0)
-
-        return (transposed_grad, None, None)
+        # return (grad.transpose(1,0), None, None)
 
 
-def compute_CTCloss_withASD(reference_text, predicted_text, ref_label_ids, output_logits, asd_model, asd_tokenizer):
-    loss = torch.zeros((1), requires_grad=True, device=device).double()
+
+# ========================================================
+# https://github.com/vadimkantorov/ctc/blob/master/ctc.py
+
+def custom_ctc_loss2(log_probs : torch.Tensor, targets : torch.Tensor, input_lengths : torch.Tensor, target_lengths : torch.Tensor, blank : int = 0, finfo_min_fp32: float = torch.finfo(torch.float32).min, finfo_min_fp16: float = torch.finfo(torch.float16).min, alignment : bool = False):
+    input_time_size, batch_size = log_probs.shape[:2]
+    B = torch.arange(batch_size, device = input_lengths.device)
+
+    _t_a_r_g_e_t_s_ = torch.cat([targets, targets[:, :1]], dim = -1)
+    _t_a_r_g_e_t_s_ = torch.stack([torch.full_like(_t_a_r_g_e_t_s_, blank), _t_a_r_g_e_t_s_], dim = -1).flatten(start_dim = -2)
+
+    diff_labels = torch.cat([torch.as_tensor([[False, False]], device = targets.device).expand(batch_size, -1), _t_a_r_g_e_t_s_[:, 2:] != _t_a_r_g_e_t_s_[:, :-2]], dim = 1)
+
+	# if zero = float('-inf') is used as neutral element, custom logsumexp must be used to avoid nan grad in torch.logsumexp
+
+    zero_padding, zero = 2, torch.tensor(finfo_min_fp16 if log_probs.dtype == torch.float16 else finfo_min_fp32, device = log_probs.device, dtype = log_probs.dtype)
+
+    log_probs_ = log_probs.gather(-1, _t_a_r_g_e_t_s_.expand(input_time_size, -1, -1)).clone()
+    log_alpha = torch.full((input_time_size, batch_size, zero_padding + _t_a_r_g_e_t_s_.shape[-1]), zero, device = log_probs.device, dtype = log_probs.dtype)
+    log_alpha[0, :, zero_padding + 0] = log_probs[0, :, blank].clone()
+    log_alpha[0, :, zero_padding + 1] = log_probs[0, B, _t_a_r_g_e_t_s_[:, 1]].clone()
+	# log_alpha[1:, :, zero_padding:] = log_probs.gather(-1, _t_a_r_g_e_t_s_.expand(len(log_probs), -1, -1))[1:]
+    for t in range(1, input_time_size):
+        log_alpha[t, :, 2:] = log_probs_[t].clone() + logadd(log_alpha[t - 1, :, 2:].clone(), log_alpha[t - 1, :, 1:-1].clone(), torch.where(diff_labels, log_alpha[t - 1, :, :-2], zero))
+
+    print(log_alpha[input_lengths - 1, B].shape)
+    print(torch.stack([zero_padding + target_lengths * 2 - 1, zero_padding + target_lengths * 2], dim = -1))
+    l1l2 = log_alpha[input_lengths - 1, B].gather(dim=-1, index=torch.stack([zero_padding + target_lengths * 2 - 1, zero_padding + target_lengths * 2], dim = -1))
+    loss = -torch.logsumexp(l1l2, dim = -1)
+    return loss
+
+def logadd(x0, x1, x2):
+	# produces nan gradients in backward if -inf log-space zero element is used https://github.com/pytorch/pytorch/issues/31829
+	return torch.logsumexp(torch.stack([x0, x1, x2]), dim = 0)
+
+
+
+# USING STANF0RD-CTC CODE:
+def compute_CTCloss_withASD(reference_text, predicted_text, ref_label_ids, output_logits):  # originally includes: asd_model, asd_tokenizer
+    # loss = torch.zeros((1), requires_grad=True, device=device).double()
+    loss = torch.zeros((len(reference_text)), requires_grad=True, device=device).double()
     for i in range(len(reference_text)):
         ref_text = reference_text[i].replace("[UNK]", "")
         pred_text = predicted_text[i].replace("[UNK]", "")
@@ -305,15 +367,60 @@ def compute_CTCloss_withASD(reference_text, predicted_text, ref_label_ids, outpu
         labels_mask = label_ids >= 0
         flattened_labels = label_ids.masked_select(labels_mask)
         logits = output_logits[i]
+        print(logits.shape)
         print(i, ref_text)
         print(i, pred_text)
-        ref_alignments = get_asd_align(ref_text, pred_text, asd_model, asd_tokenizer)
-        tokens_compressed = get_per_token_cosdist(ref_alignments)
-        cosdist_for_ctc = get_cosdist_for_ctc(tokens_compressed, flattened_labels)
+        # ref_alignments = get_asd_align(ref_text, pred_text, asd_model, asd_tokenizer)
+        # tokens_compressed = get_per_token_cosdist(ref_alignments)
+        # cosdist_for_ctc = get_cosdist_for_ctc(tokens_compressed, flattened_labels)
         myctcloss = MyCTC.apply
-        custom_loss = myctcloss(logits, flattened_labels, cosdist_for_ctc)
-        loss = loss + custom_loss
+        # custom_loss = myctcloss(logits, flattened_labels, cosdist_for_ctc)
+        # loss = loss + custom_loss
+        # loss[i] = myctcloss(logits, flattened_labels, cosdist_for_ctc)
+        loss[i] = myctcloss(logits, flattened_labels)
         # print("custom loss:", custom_loss, "accumulated loss:", loss)
     # loss = loss / len(reference_text)
-    print("BATCH LOSS:", loss)
-    return loss
+    print("BATCH LOSS:", loss.sum())
+    return loss.sum()
+
+
+
+# USING TORCH CODE WITHOUT EXTENDING TORCH.AUTOGRAD
+# def compute_CTCloss_withASD(reference_text, predicted_text, ref_label_ids, output_logits, asd_model, asd_tokenizer):
+
+#     loss = torch.zeros((len(reference_text)), requires_grad=True, device=device).double()
+
+#     for i in range(len(reference_text)):
+
+#         ref_text = reference_text[i].replace("[UNK]", "")
+#         pred_text = predicted_text[i].replace("[UNK]", "")
+#         print(i, ref_text)
+#         print(i, pred_text)
+
+#         label_ids = ref_label_ids[i]
+#         labels_mask = label_ids >= 0
+#         target_lengths = labels_mask.sum(-1)
+#         flattened_labels = label_ids.masked_select(labels_mask).unsqueeze(0)
+#         print("flattened_labels:", flattened_labels.shape)
+
+#         logits = output_logits[i].unsqueeze(1)
+#         log_probs = logits.log_softmax(dim = -1)
+#         print("log probs shape:", log_probs.shape)
+
+#         T, B = logits.shape[0], 1
+#         input_lengths = torch.full((B,), T, dtype=torch.long, device=device)
+#         print("input lengths:", input_lengths)
+
+#         # ref_alignments = get_asd_align(ref_text, pred_text, asd_model, asd_tokenizer)
+#         # tokens_compressed = get_per_token_cosdist(ref_alignments)
+#         # cosdist_for_ctc = get_cosdist_for_ctc(tokens_compressed, flattened_labels)
+
+#         loss[i] = custom_ctc_loss2(log_probs=log_probs,
+#                                 targets=flattened_labels,
+#                                 input_lengths=input_lengths,
+#                                 target_lengths=target_lengths,
+#                                 blank = 0)
+
+#     print("BATCH LOSS:", loss.sum())
+
+#     return loss.sum()
