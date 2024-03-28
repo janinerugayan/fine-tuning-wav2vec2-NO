@@ -1,5 +1,5 @@
-import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # or "0,1" for multiple GPUs
+# import os
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # or "0,1" for multiple GPUs
 
 import collections
 if not hasattr(collections, "Container"):
@@ -32,7 +32,7 @@ from customCTCwithASD import compute_CTCloss_withASD
 # enabled to find the operation that failed to compute its gradient
 # torch.autograd.set_detect_anomaly(True)
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 chars_to_ignore_regex = '[\,\?\.\!\-\;\:\"\*]'
@@ -105,7 +105,7 @@ def load_dataset_from_files(data_dir_list:list[str], csv_export_dir:str, split_r
     # split dataset
     raw_dataset = raw_dataset.train_test_split(test_size=split_ratio)
     # save copy of dataset
-    if csv_export == True:
+    if csv_export is True:
         df_train = pd.DataFrame(raw_dataset["train"])
         df_train.to_csv(os.path.join(csv_export_dir, "train_set.csv"))
         df_dev = pd.DataFrame(raw_dataset["test"])
@@ -162,7 +162,7 @@ model = Wav2Vec2ForCTC.from_pretrained(
     ctc_loss_reduction="mean",
     pad_token_id=processor.tokenizer.pad_token_id,
 )
-model = model.to(device)
+# model = model.to(device)
 
 # feature extraction does not need further fine-tuning
 model.freeze_feature_encoder()
@@ -272,8 +272,8 @@ repo_local_dir = "../../model_ckpts/" + args.fine_tuned_model_ver + "/"
 training_args = TrainingArguments(
   output_dir=repo_local_dir,
   group_by_length=True,
-  per_device_train_batch_size=1,  # orig: 8
-  per_device_eval_batch_size=1,  # orig: 8
+  per_device_train_batch_size=8,  # orig: 8
+  per_device_eval_batch_size=8,  # orig: 8
   eval_accumulation_steps=100,
   evaluation_strategy="steps",
   num_train_epochs=args.num_train_epochs,  # orig: 30
@@ -302,6 +302,7 @@ def compute_metrics(pred):
     wer = wer_metric.compute(predictions=pred_str.text, references=label_str) # worked in fine-tuning versions 1 to 14 (wer metric)
     return {"wer": wer}
 
+print("Available cuda devices:", torch.cuda.device_count())
 
 if args.use_asd_metric == 1:
     print("Setting up Custom Trainer")
@@ -335,8 +336,8 @@ if args.use_asd_metric == 1:
             labels = inputs["labels"]
             label_str = processor_woLM.batch_decode(labels, group_tokens=False)  # we do not want to group tokens when computing the metrics
 
-            print(pred_str.text)
-            print(label_str)
+            # print("REF:", label_str)
+            # print("HYP:", pred_str.text)
 
             # print(output_logits.shape)
             # for i, logits in enumerate(output_logits):
@@ -347,34 +348,40 @@ if args.use_asd_metric == 1:
             #             not_letters.append(token.values)
             #     print(set(not_letters))
 
-            # for i in range(2):
-            #     predicted_text = pred_str.text[i*8:(i+1)*8]
-            #     reference_text = label_str[i*8:(i+1)*8]
-            #     logits = output_logits[i*8:(i+1)*8]
-            #     label_ids = labels[i*8:(i+1)*8]
-            #     if i == 0:
-            #         asd_loss_batch1 = compute_CTCloss_withASD(reference_text=reference_text,
-            #                                                   predicted_text=predicted_text,
-            #                                                   ref_label_ids=label_ids,
-            #                                                   output_logits=logits,
-            #                                                   asd_model=metric_model,
-            #                                                   asd_tokenizer=metric_tokenizer)
-            #     else:
-            #         asd_loss_batch2 = compute_CTCloss_withASD(reference_text=reference_text,
-            #                                                   predicted_text=predicted_text,
-            #                                                   ref_label_ids=label_ids,
-            #                                                   output_logits=logits,
-            #                                                   asd_model=metric_model,
-            #                                                   asd_tokenizer=metric_tokenizer)
+            for i in range(torch.cuda.device_count()):
+                predicted_text = pred_str.text[i*8:(i+1)*8]
+                reference_text = label_str[i*8:(i+1)*8]
+                logits = output_logits[i*8:(i+1)*8]
+                label_ids = labels[i*8:(i+1)*8]
+                if i == 0:
+                    asd_loss_batch1 = compute_CTCloss_withASD(reference_text=reference_text,
+                                                              predicted_text=predicted_text,
+                                                              ref_label_ids=label_ids,
+                                                              output_logits=logits)
+                                                            #   asd_model=metric_model,
+                                                            #   asd_tokenizer=metric_tokenizer)
+                else:
+                    asd_loss_batch2 = compute_CTCloss_withASD(reference_text=reference_text,
+                                                              predicted_text=predicted_text,
+                                                              ref_label_ids=label_ids,
+                                                              output_logits=logits)
+                                                            #   asd_model=metric_model,
+                                                            #   asd_tokenizer=metric_tokenizer)
 
-            # loss = torch.cat(((asd_loss_batch1).reshape(1), (asd_loss_batch2).reshape(1)), dim=0)
+            if torch.cuda.device_count() == 2:
+                loss = torch.cat(((asd_loss_batch1).reshape(1), (asd_loss_batch2).reshape(1)), dim=0)
+                print("2 devices loss:", loss)
+                return (loss, outputs) if return_outputs else loss
+            else:
+                print("1 device loss:", asd_loss_batch1)
+                return (asd_loss_batch1, outputs) if return_outputs else asd_loss_batch1
 
-            loss = compute_CTCloss_withASD(reference_text=[label_str[0]],
-                                                            predicted_text=[pred_str.text[0]],
-                                                            ref_label_ids=[labels[0]],
-                                                            output_logits=[output_logits[0]])
+            # loss = compute_CTCloss_withASD(reference_text=[label_str[0]],
+            #                                                 predicted_text=[pred_str.text[0]],
+            #                                                 ref_label_ids=[labels[0]],
+            #                                                 output_logits=[output_logits[0]]) 
 
-            return (loss, outputs) if return_outputs else loss
+            # return (loss, outputs) if return_outputs else loss
 
     # trainer.compute_loss = types.MethodType(custom_compute_loss, trainer)
 

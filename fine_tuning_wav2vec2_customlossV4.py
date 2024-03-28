@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Union
 import wandb
 import argparse
 import types
-from asd_metric_with_grad import 
+from customCTCwithASD import sampled_logits_asd_loss
 # from aulus_notification_bot import NotificationBot
 
 # enabled to find the operation that failed to compute its gradient
@@ -134,7 +134,7 @@ parser.add_argument("--wandb_name",             type=str)
 parser.add_argument("--export_log",             type=str)
 args = parser.parse_args()
 
-# wandb.init(project="fine-tuning-wav2vec2-NO_customLoss", entity="janinerugayan", name=args.wandb_name)
+wandb.init(project="fine-tuning-wav2vec2-NO_customLoss", entity="janinerugayan", name=args.wandb_name)
 
 # torch.multiprocessing.set_start_method('spawn')
 
@@ -273,9 +273,9 @@ training_args = TrainingArguments(
   num_train_epochs=args.num_train_epochs,  # orig: 30
   fp16=True,  # orig: True
   gradient_checkpointing=True,
-  save_steps=500,
-  eval_steps=500,
-  logging_steps=500,
+  save_steps=500,  # orig: 500
+  eval_steps=500,  # orig: 500
+  logging_steps=500,  # orig: 500
   learning_rate=args.learning_rate,  # orig: 1e-4
   weight_decay=0.005,
   warmup_steps=2000,  # orig: 1000
@@ -288,14 +288,14 @@ training_args = TrainingArguments(
 
 
 wer_metric = load_metric("wer")
+# asd_metric = load_metric("asd_metric.py")
 def compute_metrics(pred):
     pred_logits = pred.predictions
     pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
     pred_str = processor.batch_decode(pred_logits)
     label_str = processor_woLM.batch_decode(pred.label_ids, group_tokens=False)  # we do not want to group tokens when computing the metrics
     wer = wer_metric.compute(predictions=pred_str.text, references=label_str) # worked in fine-tuning versions 1 to 14 (wer metric)
-    print(pred_str.text[0])
-    print(label_str[0])
+    # asd = asd_metric.compute(predictions=pred_str.text, references=label_str)
     return {"wer": wer}
 
 
@@ -310,7 +310,7 @@ if args.use_asd_metric == 1:
     metric_model = BertModel.from_pretrained(metric_modelname)
     metric_tokenizer = AutoTokenizer.from_pretrained(metric_modelname)
 
-    asd_metric = load_metric("asd_metric.py")
+    # asd_metric = load_metric("asd_metric.py")
 
     class CustomTrainer(Trainer):
         def __init__(self, *args, **kwargs):
@@ -325,30 +325,33 @@ if args.use_asd_metric == 1:
 
             outputs = model(**inputs)
 
-            output_logits = outputs["logits"].detach()
-            pred_logits = self._gather_and_numpify(output_logits, "eval_preds")
+            output_logits = outputs["logits"]
+            pred_logits = self._gather_and_numpify(output_logits.detach(), "eval_preds")
             pred_str = processor.batch_decode(pred_logits)
             labels = inputs["labels"]
             label_str = processor_woLM.batch_decode(labels, group_tokens=False)  # we do not want to group tokens when computing the metrics
 
             loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
 
+            asd_loss = []
             for i in range(2):
                 predicted_text = pred_str.text[i*8:(i+1)*8]
                 reference_text = label_str[i*8:(i+1)*8]
-                asd_score = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer,
-                                               reference=reference_text, hypothesis=predicted_text)
-                if i == 0:
-                    asd_loss_batch1 = torch.tensor(asd_score, requires_grad=True, device="cuda")
-                else:
-                    asd_loss_batch2 = torch.tensor(asd_score, requires_grad=True, device="cuda")
+                logits = output_logits[i*8:(i+1)*8]
+                asd_loss.append(sampled_logits_asd_loss(reference_text=reference_text,
+                                                        predicted_text=predicted_text,
+                                                        output_logits=logits,
+                                                        metric_model=metric_model,
+                                                        metric_tokenizer=metric_tokenizer))
 
-            # adding lambda without lambda ratio
-            new_loss = torch.cat(((asd_loss_batch1 + loss[0]).reshape(1), (asd_loss_batch2 + loss[1]).reshape(1)), dim=0)
+            new_loss = torch.cat((((args.lambda_asd * asd_loss[0]) + ((1 - args.lambda_asd) * loss[0])).reshape(1),
+                                  ((args.lambda_asd * asd_loss[1]) + ((1 - args.lambda_asd) * loss[1])).reshape(1)), dim=0)
 
-            # lambda ablation
-            # new_loss = torch.cat((((args.lambda_asd * asd_loss_batch1) + ((1 - args.lambda_asd) * loss[0])).reshape(1),
-                                #   ((args.lambda_asd * asd_loss_batch2) + ((1 - args.lambda_asd) * loss[1])).reshape(1)), dim=0)
+            # new_loss = torch.cat((((args.lambda_asd * asd_loss[0]) + loss[0]).reshape(1),
+            #                       ((args.lambda_asd * asd_loss[1]) + loss[1]).reshape(1)), dim=0)
+
+
+            print(new_loss)
 
             # with open(args.export_log, "a") as f:
             #     f.write(str(asd_loss_batch1.item()) + ";" + str(new_loss[0].item()) + "\n")
@@ -383,17 +386,6 @@ else:
     )
 
 
-# trainer = Trainer(
-#         model=model,
-#         data_collator=data_collator,
-#         args=training_args,
-#         compute_metrics=compute_metrics,
-#         train_dataset=dataset["train"],
-#         eval_dataset=dataset["test"],
-#         tokenizer=processor.feature_extractor,
-#     )
-
-
 
 
 # ---------------------------------------------------
@@ -415,43 +407,3 @@ with open(log_history_fn, "w") as f:
 print("Saving fine-tuned model")
 model.save_pretrained(save_directory=finetuned_model_dir)
 processor.save_pretrained(save_directory=finetuned_model_dir)
-
-
-# NOTIFICATION BOT
-# notify_me = NotificationBot()
-# notify_me.notify(args.fine_tuned_model_ver)
-
-
-
-
-# ---------------------------------------------------
-# EVALUATION
-# ---------------------------------------------------
-
-# torch.cuda.empty_cache()
-# print("Evaluation starts")
-#
-# print("Loading fine-tuned model")
-# # processor = Wav2Vec2Processor.from_pretrained(finetuned_model_dir)
-# processor = Wav2Vec2ProcessorWithLM.from_pretrained(finetuned_model_dir)
-# model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
-#
-#
-# def map_to_result(batch):
-#     audiofile = batch["path"]
-#     reference_text = batch["text"]
-#     audio, rate = librosa.load(audiofile, sr=16000)
-#     input_values = processor(audio, sampling_rate=rate, return_tensors='pt').input_values
-#     with torch.no_grad():
-#         logits = model(input_values).logits
-#     pred_ids = torch.argmax(logits, dim=-1)
-#     batch["asr_str"] = processor.batch_decode(pred_ids)[0]
-#     batch["ref_str"] = reference_text
-#     return batch
-#
-#
-# results = raw_dataset["test"].map(map_to_result, remove_columns=raw_dataset["test"].column_names)
-#
-# print("Test WER: {:.3f}".format(wer_metric.compute(predictions=results["asr_str"], references=results["ref_str"])))
-#
-# show_random_elements(results)

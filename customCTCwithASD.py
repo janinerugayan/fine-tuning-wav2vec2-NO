@@ -21,10 +21,11 @@ import types
 from tabulate import tabulate
 from dtw import *
 import torch
+import torch.nn.functional as F
 from scipy.spatial import distance
 
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 # returning ASD cosdist alignment to reference tokens
@@ -132,7 +133,7 @@ def get_cosdist_for_ctc(tokens_compressed, label_ids):
 class MyCTC(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, logits, seq, blank=0):
+    def forward(ctx, logits, seq, blank=31):
         params = logits.transpose(1,0)
         seqLen = seq.shape[0]  # length of label sequence
         # seqLen = len(seq)
@@ -320,43 +321,8 @@ class MyCTC(torch.autograd.Function):
 
 
 
-# ========================================================
-# https://github.com/vadimkantorov/ctc/blob/master/ctc.py
-
-def custom_ctc_loss2(log_probs : torch.Tensor, targets : torch.Tensor, input_lengths : torch.Tensor, target_lengths : torch.Tensor, blank : int = 0, finfo_min_fp32: float = torch.finfo(torch.float32).min, finfo_min_fp16: float = torch.finfo(torch.float16).min, alignment : bool = False):
-    input_time_size, batch_size = log_probs.shape[:2]
-    B = torch.arange(batch_size, device = input_lengths.device)
-
-    _t_a_r_g_e_t_s_ = torch.cat([targets, targets[:, :1]], dim = -1)
-    _t_a_r_g_e_t_s_ = torch.stack([torch.full_like(_t_a_r_g_e_t_s_, blank), _t_a_r_g_e_t_s_], dim = -1).flatten(start_dim = -2)
-
-    diff_labels = torch.cat([torch.as_tensor([[False, False]], device = targets.device).expand(batch_size, -1), _t_a_r_g_e_t_s_[:, 2:] != _t_a_r_g_e_t_s_[:, :-2]], dim = 1)
-
-	# if zero = float('-inf') is used as neutral element, custom logsumexp must be used to avoid nan grad in torch.logsumexp
-
-    zero_padding, zero = 2, torch.tensor(finfo_min_fp16 if log_probs.dtype == torch.float16 else finfo_min_fp32, device = log_probs.device, dtype = log_probs.dtype)
-
-    log_probs_ = log_probs.gather(-1, _t_a_r_g_e_t_s_.expand(input_time_size, -1, -1)).clone()
-    log_alpha = torch.full((input_time_size, batch_size, zero_padding + _t_a_r_g_e_t_s_.shape[-1]), zero, device = log_probs.device, dtype = log_probs.dtype)
-    log_alpha[0, :, zero_padding + 0] = log_probs[0, :, blank].clone()
-    log_alpha[0, :, zero_padding + 1] = log_probs[0, B, _t_a_r_g_e_t_s_[:, 1]].clone()
-	# log_alpha[1:, :, zero_padding:] = log_probs.gather(-1, _t_a_r_g_e_t_s_.expand(len(log_probs), -1, -1))[1:]
-    for t in range(1, input_time_size):
-        log_alpha[t, :, 2:] = log_probs_[t].clone() + logadd(log_alpha[t - 1, :, 2:].clone(), log_alpha[t - 1, :, 1:-1].clone(), torch.where(diff_labels, log_alpha[t - 1, :, :-2], zero))
-
-    print(log_alpha[input_lengths - 1, B].shape)
-    print(torch.stack([zero_padding + target_lengths * 2 - 1, zero_padding + target_lengths * 2], dim = -1))
-    l1l2 = log_alpha[input_lengths - 1, B].gather(dim=-1, index=torch.stack([zero_padding + target_lengths * 2 - 1, zero_padding + target_lengths * 2], dim = -1))
-    loss = -torch.logsumexp(l1l2, dim = -1)
-    return loss
-
-def logadd(x0, x1, x2):
-	# produces nan gradients in backward if -inf log-space zero element is used https://github.com/pytorch/pytorch/issues/31829
-	return torch.logsumexp(torch.stack([x0, x1, x2]), dim = 0)
-
-
-
 # USING STANF0RD-CTC CODE:
+
 def compute_CTCloss_withASD(reference_text, predicted_text, ref_label_ids, output_logits):  # originally includes: asd_model, asd_tokenizer
     # loss = torch.zeros((1), requires_grad=True, device=device).double()
     loss = torch.zeros((len(reference_text)), requires_grad=True, device=device).double()
@@ -367,9 +333,6 @@ def compute_CTCloss_withASD(reference_text, predicted_text, ref_label_ids, outpu
         labels_mask = label_ids >= 0
         flattened_labels = label_ids.masked_select(labels_mask)
         logits = output_logits[i]
-        print(logits.shape)
-        print(i, ref_text)
-        print(i, pred_text)
         # ref_alignments = get_asd_align(ref_text, pred_text, asd_model, asd_tokenizer)
         # tokens_compressed = get_per_token_cosdist(ref_alignments)
         # cosdist_for_ctc = get_cosdist_for_ctc(tokens_compressed, flattened_labels)
@@ -380,47 +343,55 @@ def compute_CTCloss_withASD(reference_text, predicted_text, ref_label_ids, outpu
         loss[i] = myctcloss(logits, flattened_labels)
         # print("custom loss:", custom_loss, "accumulated loss:", loss)
     # loss = loss / len(reference_text)
-    print("BATCH LOSS:", loss.sum())
+    # print("BATCH LOSS:", loss.sum())
     return loss.sum()
 
 
 
-# USING TORCH CODE WITHOUT EXTENDING TORCH.AUTOGRAD
-# def compute_CTCloss_withASD(reference_text, predicted_text, ref_label_ids, output_logits, asd_model, asd_tokenizer):
+# ===================================================
+# CTC with Gumbel-Softmax sampled ASD scoring
 
-#     loss = torch.zeros((len(reference_text)), requires_grad=True, device=device).double()
+def compute_asd_score_batch(model, tokenizer, reference, hypothesis):
+    asd_score = []
+    for ref_text, hyp_text in zip(reference, hypothesis):
+        ref_text = ref_text.replace("[UNK]", "")  # removes the [UNK] token in the reference text, observed during training
+        hyp_text = hyp_text.replace("[UNK]", "")
+        tokenized_ref = tokenizer(ref_text, padding=True, truncation=True, max_length=512, return_tensors="pt")
+        tokenized_hyp = tokenizer(hyp_text, padding=True, truncation=True, max_length=512, return_tensors="pt")
+        with torch.no_grad():
+            model_output_ref = model(**tokenized_ref, output_hidden_states=True)
+            model_output_hyp = model(**tokenized_hyp, output_hidden_states=True)
+        hidden_states_ref = model_output_ref.hidden_states
+        hidden_states_hyp = model_output_hyp.hidden_states
+        all_layers_reference = [hidden_states_ref[1].squeeze(), hidden_states_ref[2].squeeze(), hidden_states_ref[3].squeeze(), hidden_states_ref[4].squeeze(),
+                                hidden_states_ref[5].squeeze(), hidden_states_ref[6].squeeze(), hidden_states_ref[7].squeeze(), hidden_states_ref[8].squeeze(),
+                                hidden_states_ref[9].squeeze(), hidden_states_ref[10].squeeze(), hidden_states_ref[11].squeeze(), hidden_states_ref[12].squeeze()]
+        all_layers_hypothesis = [hidden_states_hyp[1].squeeze(), hidden_states_hyp[2].squeeze(), hidden_states_hyp[3].squeeze(), hidden_states_hyp[4].squeeze(),
+                                    hidden_states_hyp[5].squeeze(), hidden_states_hyp[6].squeeze(), hidden_states_hyp[7].squeeze(), hidden_states_hyp[8].squeeze(),
+                                    hidden_states_hyp[9].squeeze(), hidden_states_hyp[10].squeeze(), hidden_states_hyp[11].squeeze(), hidden_states_hyp[12].squeeze()]
+        output_mean_reference = torch.stack(all_layers_reference).mean(dim=0)
+        output_mean_hypothesis = torch.stack(all_layers_hypothesis).mean(dim=0)
+        alignment = dtw(output_mean_hypothesis, output_mean_reference, dist_method=distance.cosine, keep_internals=True)
+        num_tokens = len(output_mean_reference)
+        asd_score.append((alignment.distance / num_tokens))
+    return asd_score
 
-#     for i in range(len(reference_text)):
-
-#         ref_text = reference_text[i].replace("[UNK]", "")
-#         pred_text = predicted_text[i].replace("[UNK]", "")
-#         print(i, ref_text)
-#         print(i, pred_text)
-
-#         label_ids = ref_label_ids[i]
-#         labels_mask = label_ids >= 0
-#         target_lengths = labels_mask.sum(-1)
-#         flattened_labels = label_ids.masked_select(labels_mask).unsqueeze(0)
-#         print("flattened_labels:", flattened_labels.shape)
-
-#         logits = output_logits[i].unsqueeze(1)
-#         log_probs = logits.log_softmax(dim = -1)
-#         print("log probs shape:", log_probs.shape)
-
-#         T, B = logits.shape[0], 1
-#         input_lengths = torch.full((B,), T, dtype=torch.long, device=device)
-#         print("input lengths:", input_lengths)
-
-#         # ref_alignments = get_asd_align(ref_text, pred_text, asd_model, asd_tokenizer)
-#         # tokens_compressed = get_per_token_cosdist(ref_alignments)
-#         # cosdist_for_ctc = get_cosdist_for_ctc(tokens_compressed, flattened_labels)
-
-#         loss[i] = custom_ctc_loss2(log_probs=log_probs,
-#                                 targets=flattened_labels,
-#                                 input_lengths=input_lengths,
-#                                 target_lengths=target_lengths,
-#                                 blank = 0)
-
-#     print("BATCH LOSS:", loss.sum())
-
-#     return loss.sum()
+def sampled_logits_asd_loss(reference_text, predicted_text, output_logits, metric_model, metric_tokenizer):
+    # calculate asd scores for batch:
+    asd_scores = compute_asd_score_batch(metric_model, metric_tokenizer, reference_text, predicted_text)
+    # sample from output logits:
+    sampled_logits = F.gumbel_softmax(output_logits, tau=1, hard=True, dim=-1)
+    # sampled logits x ASD score:
+    temp_list = []
+    for i, logits in enumerate(sampled_logits):
+        asd_matrix = torch.full_like(logits, (1 + (asd_scores[i]*10)), requires_grad=False)
+        temp_list.append(logits.detach() * asd_matrix)
+    sampled_logits_asd = torch.stack(temp_list, dim=0)
+    sampled_logits_asd.unsqueeze(0)
+    # calculate loss:
+    # L1loss = torch.nn.SmoothL1Loss(reduction="mean", beta=1)
+    L1loss = torch.nn.L1Loss(reduction="mean")
+    loss = L1loss(input=sampled_logits, target=sampled_logits_asd) * 10
+    # MSEloss = torch.nn.MSELoss(reduction="mean")
+    # loss = MSEloss(input=sampled_logits, target=sampled_logits_asd) * 100
+    return loss

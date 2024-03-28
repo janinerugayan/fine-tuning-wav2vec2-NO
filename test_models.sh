@@ -25,13 +25,13 @@
 #                                     --get_orig_model_results=1\
 
 cd logs
-mkdir CustomLoss_V11
+mkdir customLossTRIAL12
 cd ../
 
 python test_wav2vec2_scoreperutt.py --original_model="NbAiLab/nb-wav2vec2-300m-bokmaal"\
-                                    --fine_tuned_model="../../fine_tuned_models/wav2vec2_NO_customLossV11"\
-                                    --log_file_name="test_log_wav2vec2_NO_customLossV11"\
-                                    --log_dir="./logs/CustomLoss_V11/"\
+                                    --fine_tuned_model="../../fine_tuned_models/wav2vec2_NO_customLossTRIAL12"\
+                                    --log_file_name="test_log_wav2vec2_NO_customLossTRIAL12"\
+                                    --log_dir="./logs/customLossTRIAL12/"\
                                     --get_orig_model_results=0\
 
 
