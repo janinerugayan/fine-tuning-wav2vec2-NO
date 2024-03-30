@@ -1,5 +1,5 @@
-# import os
-# os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # or "0,1" for multiple GPUs
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # or "0,1" for multiple GPUs
 
 import collections
 if not hasattr(collections, "Container"):
@@ -32,7 +32,7 @@ from customCTCwithASD import compute_CTCloss_withASD
 # enabled to find the operation that failed to compute its gradient
 # torch.autograd.set_detect_anomaly(True)
 
-# device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 chars_to_ignore_regex = '[\,\?\.\!\-\;\:\"\*]'
@@ -162,7 +162,7 @@ model = Wav2Vec2ForCTC.from_pretrained(
     ctc_loss_reduction="mean",
     pad_token_id=processor.tokenizer.pad_token_id,
 )
-# model = model.to(device)
+model = model.to(device)
 
 # feature extraction does not need further fine-tuning
 model.freeze_feature_encoder()
@@ -228,7 +228,7 @@ class DataCollatorCTCWithPadding:
 
     # processor: Wav2Vec2Processor
     processor: Wav2Vec2ProcessorWithLM
-    padding: Union[bool, str] = True
+    padding: Union[bool, str] = True  # original: True
     max_length: Optional[int] = None
     max_length_labels: Optional[int] = None
     pad_to_multiple_of: Optional[int] = None
@@ -272,8 +272,8 @@ repo_local_dir = "../../model_ckpts/" + args.fine_tuned_model_ver + "/"
 training_args = TrainingArguments(
   output_dir=repo_local_dir,
   group_by_length=True,
-  per_device_train_batch_size=8,  # orig: 8
-  per_device_eval_batch_size=8,  # orig: 8
+  per_device_train_batch_size=1,  # orig: 8
+  per_device_eval_batch_size=1,  # orig: 8
   eval_accumulation_steps=100,
   evaluation_strategy="steps",
   num_train_epochs=args.num_train_epochs,  # orig: 30
@@ -336,8 +336,8 @@ if args.use_asd_metric == 1:
             labels = inputs["labels"]
             label_str = processor_woLM.batch_decode(labels, group_tokens=False)  # we do not want to group tokens when computing the metrics
 
-            # print("REF:", label_str)
-            # print("HYP:", pred_str.text)
+            print("REF:", label_str)
+            print("HYP:", pred_str.text)
 
             # print(output_logits.shape)
             # for i, logits in enumerate(output_logits):
@@ -379,7 +379,7 @@ if args.use_asd_metric == 1:
             # loss = compute_CTCloss_withASD(reference_text=[label_str[0]],
             #                                                 predicted_text=[pred_str.text[0]],
             #                                                 ref_label_ids=[labels[0]],
-            #                                                 output_logits=[output_logits[0]]) 
+            #                                                 output_logits=[output_logits[0]])
 
             # return (loss, outputs) if return_outputs else loss
 
