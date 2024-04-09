@@ -27,12 +27,13 @@ import wandb
 import argparse
 import types
 from customCTCwithASD import compute_CTCloss_withASD
-# from aulus_notification_bot import NotificationBot
+
 
 # enabled to find the operation that failed to compute its gradient
 # torch.autograd.set_detect_anomaly(True)
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 chars_to_ignore_regex = '[\,\?\.\!\-\;\:\"\*]'
@@ -195,7 +196,6 @@ print(dataset)
 
 
 
-
 # ---------------------------------------------------
 # SET-UP TRAINER
 # ---------------------------------------------------
@@ -272,8 +272,8 @@ repo_local_dir = "../../model_ckpts/" + args.fine_tuned_model_ver + "/"
 training_args = TrainingArguments(
   output_dir=repo_local_dir,
   group_by_length=True,
-  per_device_train_batch_size=1,  # orig: 8
-  per_device_eval_batch_size=1,  # orig: 8
+  per_device_train_batch_size=8,  # orig: 8
+  per_device_eval_batch_size=8,  # orig: 8
   eval_accumulation_steps=100,
   evaluation_strategy="steps",
   num_train_epochs=args.num_train_epochs,  # orig: 30
@@ -330,52 +330,58 @@ if args.use_asd_metric == 1:
 
             outputs = model(**inputs)
 
+            attention_mask = inputs["attention_mask"]
+            print("attention mask shape:", attention_mask.shape)
+            input_lengths = model._get_feat_extract_output_lengths(attention_mask.sum(-1)).to(torch.long)
+            print("input lengths:", input_lengths)
+
             output_logits = outputs["logits"]
             pred_logits = self._gather_and_numpify(output_logits.detach(), "eval_preds")
             pred_str = processor.batch_decode(pred_logits)
             labels = inputs["labels"]
             label_str = processor_woLM.batch_decode(labels, group_tokens=False)  # we do not want to group tokens when computing the metrics
 
-            print("REF:", label_str)
-            print("HYP:", pred_str.text)
+            # print("REF:", label_str)
+            # print("HYP:", pred_str.text)
 
-            # print(output_logits.shape)
-            # for i, logits in enumerate(output_logits):
-            #     token_ids = torch.argmax(logits, dim=1)
-            #     not_letters = []
-            #     for token in token_ids:
-            #         if token > 29:
-            #             not_letters.append(token.values)
-            #     print(set(not_letters))
+            # batched input with only 1 GPU used
+            asd_loss = compute_CTCloss_withASD(reference_text=label_str,
+                                                predicted_text=pred_str.text,
+                                                ref_label_ids=labels,
+                                                output_logits=output_logits,
+                                                input_lengths=input_lengths)
 
-            for i in range(torch.cuda.device_count()):
-                predicted_text = pred_str.text[i*8:(i+1)*8]
-                reference_text = label_str[i*8:(i+1)*8]
-                logits = output_logits[i*8:(i+1)*8]
-                label_ids = labels[i*8:(i+1)*8]
-                if i == 0:
-                    asd_loss_batch1 = compute_CTCloss_withASD(reference_text=reference_text,
-                                                              predicted_text=predicted_text,
-                                                              ref_label_ids=label_ids,
-                                                              output_logits=logits)
-                                                            #   asd_model=metric_model,
-                                                            #   asd_tokenizer=metric_tokenizer)
-                else:
-                    asd_loss_batch2 = compute_CTCloss_withASD(reference_text=reference_text,
-                                                              predicted_text=predicted_text,
-                                                              ref_label_ids=label_ids,
-                                                              output_logits=logits)
-                                                            #   asd_model=metric_model,
-                                                            #   asd_tokenizer=metric_tokenizer)
+            print("1 device loss:", asd_loss)
+            return (asd_loss, outputs) if return_outputs else asd_loss
 
-            if torch.cuda.device_count() == 2:
-                loss = torch.cat(((asd_loss_batch1).reshape(1), (asd_loss_batch2).reshape(1)), dim=0)
-                print("2 devices loss:", loss)
-                return (loss, outputs) if return_outputs else loss
-            else:
-                print("1 device loss:", asd_loss_batch1)
-                return (asd_loss_batch1, outputs) if return_outputs else asd_loss_batch1
+            # # batched input with 2 GPUs used
+            # for i in range(torch.cuda.device_count()):
+            #     predicted_text = pred_str.text[i*8:(i+1)*8]
+            #     reference_text = label_str[i*8:(i+1)*8]
+            #     logits = output_logits[i*8:(i+1)*8]
+            #     label_ids = labels[i*8:(i+1)*8]
+            #     if i == 0:
+            #         asd_loss_batch1 = compute_CTCloss_withASD(reference_text=reference_text,
+            #                                                   predicted_text=predicted_text,
+            #                                                   ref_label_ids=label_ids,
+            #                                                   output_logits=logits,
+            #                                                   input_lengths=input_lengths)
+            #                                                 #   asd_model=metric_model,
+            #                                                 #   asd_tokenizer=metric_tokenizer)
+            #     else:
+            #         asd_loss_batch2 = compute_CTCloss_withASD(reference_text=reference_text,
+            #                                                   predicted_text=predicted_text,
+            #                                                   ref_label_ids=label_ids,
+            #                                                   output_logits=logits,
+            #                                                   input_lengths=input_lengths)
+            #                                                 #   asd_model=metric_model,
+            #                                                 #   asd_tokenizer=metric_tokenizer)
 
+            # loss = torch.cat(((asd_loss_batch1).reshape(1), (asd_loss_batch2).reshape(1)), dim=0)
+            # print("2 devices loss:", loss)
+            # return (loss, outputs) if return_outputs else loss
+
+            # # 1 example per batch
             # loss = compute_CTCloss_withASD(reference_text=[label_str[0]],
             #                                                 predicted_text=[pred_str.text[0]],
             #                                                 ref_label_ids=[labels[0]],

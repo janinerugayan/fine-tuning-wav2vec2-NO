@@ -23,6 +23,7 @@ from dtw import *
 import torch
 import torch.nn.functional as F
 from scipy.spatial import distance
+import ctc_optimized
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -133,7 +134,29 @@ def get_cosdist_for_ctc(tokens_compressed, label_ids):
 class MyCTC(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, logits, seq, blank=31):
+    def forward(ctx, logits, seq, input_length, blank=31):
+
+        # params = logits.transpose(1,0)
+        # # cythonized script
+        # params_arr = params.double().detach().cpu().numpy()
+        # seq_arr = seq.int().detach().cpu().numpy()
+        # llForward, llBackward, alphas, betas = ctc_optimized.forward_pass(params_arr, seq_arr, blank=31)
+
+        # print("logits:", params.shape)
+        # print("loss:", llForward, type(llForward))
+        # print("llBackward", type(llBackward))
+        # print("alphas:", alphas.shape, type(alphas))
+        # print("betas:", betas.shape, type(betas))
+
+        # alphas_tensor = torch.from_numpy(alphas).to(device)
+        # betas_tensor = torch.from_numpy(betas).to(device)
+        # llForward_tensor = torch.tensor(llForward).to(device)
+        # llBackward_tensor = torch.tensor(llBackward).to(device)
+
+        # ctx.save_for_backward(params, seq, alphas_tensor, betas_tensor, llForward_tensor, llBackward_tensor)
+
+        # return llForward_tensor
+
         params = logits.transpose(1,0)
         seqLen = seq.shape[0]  # length of label sequence
         # seqLen = len(seq)
@@ -213,7 +236,7 @@ class MyCTC(torch.autograd.Function):
             betas[start:end,t] = betas[start:end,t] / c
             llBackward = llBackward + torch.log(c)
 
-        ctx.save_for_backward(params, seq, alphas, betas, llForward, llBackward)
+        ctx.save_for_backward(params, seq, input_length, alphas, betas, llForward, llBackward)
 
         # ctc_loss_mean = -llForward / seqLen
 
@@ -223,7 +246,7 @@ class MyCTC(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        params, seq, alphas, betas, llForward, llBackward = ctx.saved_tensors
+        params, seq, input_length, alphas, betas, llForward, llBackward = ctx.saved_tensors
         blank = 0
         seqLen = seq.shape[0]  # length of label sequence
         # seqLen = len(seq)
@@ -286,7 +309,13 @@ class MyCTC(torch.autograd.Function):
         #         else:
         #             grad[s,t] = params[s,t]
 
-        return (grad.transpose(1,0), None)
+        # zero the gradients that are out of context
+        print("grad shape:", grad.shape, "input length", input_length)
+        for i in range(grad.shape[1]):
+            if i >= input_length:
+                grad[:,i] = 0.0
+
+        return (grad.transpose(1,0), None, None)
 
         # =============================
         # NUMPY-CTC GRAD CALCULATION
@@ -323,7 +352,7 @@ class MyCTC(torch.autograd.Function):
 
 # USING STANF0RD-CTC CODE:
 
-def compute_CTCloss_withASD(reference_text, predicted_text, ref_label_ids, output_logits):  # originally includes: asd_model, asd_tokenizer
+def compute_CTCloss_withASD(reference_text, predicted_text, ref_label_ids, output_logits, input_lengths):  # originally includes: asd_model, asd_tokenizer
     # loss = torch.zeros((1), requires_grad=True, device=device).double()
     loss = torch.zeros((len(reference_text)), requires_grad=True, device=device).double()
     for i in range(len(reference_text)):
@@ -340,7 +369,7 @@ def compute_CTCloss_withASD(reference_text, predicted_text, ref_label_ids, outpu
         # custom_loss = myctcloss(logits, flattened_labels, cosdist_for_ctc)
         # loss = loss + custom_loss
         # loss[i] = myctcloss(logits, flattened_labels, cosdist_for_ctc)
-        loss[i] = myctcloss(logits, flattened_labels)
+        loss[i] = myctcloss(logits, flattened_labels, input_lengths[i])
         # print("custom loss:", custom_loss, "accumulated loss:", loss)
     # loss = loss / len(reference_text)
     # print("BATCH LOSS:", loss.sum())

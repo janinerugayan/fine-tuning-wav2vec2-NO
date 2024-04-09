@@ -16,8 +16,8 @@ def forward_pass(double[::1,:] params,
     cdef unsigned int L = 2*seqLen + 1
     cdef unsigned int T = params.shape[1]
 
-    cdef double[::1,:] alphas = np.zeros((L,T), dtype=np.double)
-    cdef double[::1,:] betas = np.zeros((L,T), dtype=np.double)
+    cdef double[::1,:] alphas = np.zeros((L,T), dtype=np.double, order='F')
+    cdef double[::1,:] betas = np.zeros((L,T), dtype=np.double, order='F')
 
     cdef unsigned int start, end
     cdef unsigned int t, s, l
@@ -98,4 +98,4 @@ def forward_pass(double[::1,:] params,
             betas[s,t] = betas[s,t] / c
         llBackward += math.log(c)
 
-    return -llForward, llBackward, alphas, betas
+    return -llForward, llBackward, np.asarray(alphas), np.asarray(betas)
