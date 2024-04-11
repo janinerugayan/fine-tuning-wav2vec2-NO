@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # or "0,1" for multiple GPUs
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"  # or "0,1" for multiple GPUs
 
 import collections
 if not hasattr(collections, "Container"):
@@ -311,9 +311,9 @@ if args.use_asd_metric == 1:
     # verbosity set to print errors only, by default it is set to 30 = error and warnings
     transformers.logging.set_verbosity(40)
     # The bare Bert Model transformer outputting raw hidden-states without any specific head on top.
-    # metric_modelname = 'ltg/norbert2'  # changed to latest version of NorBERT (20-Mar-2023)
-    # metric_model = BertModel.from_pretrained(metric_modelname)
-    # metric_tokenizer = AutoTokenizer.from_pretrained(metric_modelname)
+    metric_modelname = 'ltg/norbert2'  # changed to latest version of NorBERT (20-Mar-2023)
+    metric_model = BertModel.from_pretrained(metric_modelname)
+    metric_tokenizer = AutoTokenizer.from_pretrained(metric_modelname)
 
     # asd_metric = load_metric("asd_metric.py")
 
@@ -331,9 +331,9 @@ if args.use_asd_metric == 1:
             outputs = model(**inputs)
 
             attention_mask = inputs["attention_mask"]
-            print("attention mask shape:", attention_mask.shape)
+            # print("attention mask shape:", attention_mask.shape)
             input_lengths = model._get_feat_extract_output_lengths(attention_mask.sum(-1)).to(torch.long)
-            print("input lengths:", input_lengths)
+            # print("input lengths:", input_lengths)
 
             output_logits = outputs["logits"]
             pred_logits = self._gather_and_numpify(output_logits.detach(), "eval_preds")
@@ -349,7 +349,9 @@ if args.use_asd_metric == 1:
                                                 predicted_text=pred_str.text,
                                                 ref_label_ids=labels,
                                                 output_logits=output_logits,
-                                                input_lengths=input_lengths)
+                                                input_lengths=input_lengths,
+                                                asd_model=metric_model,
+                                                asd_tokenizer=metric_tokenizer)
 
             print("1 device loss:", asd_loss)
             return (asd_loss, outputs) if return_outputs else asd_loss
