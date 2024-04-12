@@ -250,3 +250,4 @@ def backward_pass(double[::1,:] params,
             grad_v[:,i] = 0.0
 
     return grad
+    
