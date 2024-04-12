@@ -353,7 +353,6 @@ if args.use_asd_metric == 1:
                                                 asd_model=metric_model,
                                                 asd_tokenizer=metric_tokenizer)
 
-            print("1 device loss:", asd_loss)
             return (asd_loss, outputs) if return_outputs else asd_loss
 
             # # batched input with 2 GPUs used
