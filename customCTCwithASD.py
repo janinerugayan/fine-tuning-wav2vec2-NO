@@ -37,7 +37,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 class MyCTC(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, logits, seq, input_length, cosdist_for_ctc):
+    def forward(ctx, logits, seq, input_length, cosdist_for_ctc, lambda_asd):
 
         # ============= CYTHON CTC loss implementation =============
         params = logits.transpose(1,0)
@@ -50,7 +50,7 @@ class MyCTC(torch.autograd.Function):
         seq_arr = seq.int().detach().cpu().numpy()
         cosdist_arr = np.array(cosdist_for_ctc, dtype=np.float64)
         # llForward, llBackward, alphas, betas = ctc_optimized.forward_pass(params_arr, seq_arr, blank=31)
-        llForward, llBackward, alphas, betas = ctc_optimized.forward_pass_with_ASD(params_arr, seq_arr, cosdist_arr, blank=31)
+        llForward, llBackward, alphas, betas = ctc_optimized.forward_pass_with_ASD(params_arr, seq_arr, cosdist_arr, lambda_asd, blank=31)
 
         alphas_tensor = torch.from_numpy(alphas).to(device)
         betas_tensor = torch.from_numpy(betas).to(device)
@@ -82,7 +82,7 @@ class MyCTC(torch.autograd.Function):
 
         grad_tensor = torch.tensor(grad).to(device)
 
-        return (grad_tensor.transpose(1,0), None, None, None)
+        return (grad_tensor.transpose(1,0), None, None, None, None)
 
         # # ============= ctc grad implementation =============
         # params, seq, input_length, alphas, betas, llForward, llBackward = ctx.saved_tensors
@@ -92,7 +92,7 @@ class MyCTC(torch.autograd.Function):
 
 
 # USING STANF0RD-CTC CODE:
-def compute_CTCloss_withASD(reference_text, predicted_text, ref_label_ids, output_logits, input_lengths, asd_model, asd_tokenizer):  # originally includes: asd_model, asd_tokenizer
+def compute_CTCloss_withASD(reference_text, predicted_text, ref_label_ids, output_logits, input_lengths, asd_model, asd_tokenizer, lambda_asd):  # originally includes: asd_model, asd_tokenizer
     loss = torch.zeros((len(reference_text)), requires_grad=True, device=device).double()
     for i in range(len(reference_text)):
         ref_text = reference_text[i].replace("[UNK]", "")
@@ -105,7 +105,8 @@ def compute_CTCloss_withASD(reference_text, predicted_text, ref_label_ids, outpu
         tokens_compressed = asd_for_ctc.get_per_token_cosdist(ref_alignments)
         cosdist_for_ctc = asd_for_ctc.get_cosdist_for_ctc(tokens_compressed, flattened_labels)
         myctcloss = MyCTC.apply
-        loss[i] = myctcloss(logits, flattened_labels, input_lengths[i], cosdist_for_ctc)
+        loss[i] = myctcloss(logits, flattened_labels, input_lengths[i], cosdist_for_ctc, lambda_asd)
+        # print("loss:", loss[i], "lambda:", lambda_asd)
     return loss.sum()
 
 

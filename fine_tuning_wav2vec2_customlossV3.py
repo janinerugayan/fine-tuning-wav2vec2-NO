@@ -140,6 +140,7 @@ parser.add_argument("--wandb_name",             type=str)
 parser.add_argument("--export_log",             type=str)
 args = parser.parse_args()
 
+# WANDB login / initialization
 wandb.init(project="fine-tuning-wav2vec2-NO_customLoss", entity="janinerugayan", name=args.wandb_name)
 
 # torch.multiprocessing.set_start_method('spawn')
@@ -300,6 +301,7 @@ def compute_metrics(pred):
     pred_str = processor.batch_decode(pred_logits)
     label_str = processor_woLM.batch_decode(pred.label_ids, group_tokens=False)  # we do not want to group tokens when computing the metrics
     wer = wer_metric.compute(predictions=pred_str.text, references=label_str) # worked in fine-tuning versions 1 to 14 (wer metric)
+    # ADD ASD HERE!
     return {"wer": wer}
 
 print("Available cuda devices:", torch.cuda.device_count())
@@ -351,7 +353,8 @@ if args.use_asd_metric == 1:
                                                 output_logits=output_logits,
                                                 input_lengths=input_lengths,
                                                 asd_model=metric_model,
-                                                asd_tokenizer=metric_tokenizer)
+                                                asd_tokenizer=metric_tokenizer,
+                                                lambda_asd=args.lambda_asd)
 
             return (asd_loss, outputs) if return_outputs else asd_loss
 

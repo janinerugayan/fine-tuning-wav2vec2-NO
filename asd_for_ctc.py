@@ -92,7 +92,11 @@ def get_cosdist_for_ctc(tokens_compressed, label_ids):
             if label == 0 or label > 29:
                 cosdist_for_ctc.append(0)
             else:
-                cosdist_for_ctc.append(tokens_compressed[token_count][2])
+                if tokens_compressed[token_count][2] == 0:
+                    cosdist_for_ctc.append(1)
+                else:
+                    cosdist_for_ctc(tokens_compressed[token_count][2])
+                # cosdist_for_ctc.append(tokens_compressed[token_count][2])
         # for the next utterances
         else:
             if label == 0:
@@ -100,5 +104,9 @@ def get_cosdist_for_ctc(tokens_compressed, label_ids):
                 if i < (len(label_ids)-1) and 0 < label_ids[i+1] < 30:
                     token_count += 1
             else:
-                cosdist_for_ctc.append(tokens_compressed[token_count][2])
+                if tokens_compressed[token_count][2] == 0:
+                    cosdist_for_ctc.append(1)
+                else:
+                    cosdist_for_ctc.append(tokens_compressed[token_count][2])
+                # cosdist_for_ctc.append(tokens_compressed[token_count][2])
     return cosdist_for_ctc
