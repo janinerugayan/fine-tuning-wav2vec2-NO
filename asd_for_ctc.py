@@ -95,7 +95,7 @@ def get_cosdist_for_ctc(tokens_compressed, label_ids):
                 if tokens_compressed[token_count][2] == 0:
                     cosdist_for_ctc.append(1)
                 else:
-                    cosdist_for_ctc(tokens_compressed[token_count][2])
+                    cosdist_for_ctc.append(tokens_compressed[token_count][2])
                 # cosdist_for_ctc.append(tokens_compressed[token_count][2])
         # for the next utterances
         else:
