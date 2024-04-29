@@ -2,6 +2,8 @@ import torch
 from dtw import *
 import torch
 from scipy.spatial import distance
+from scipy.special import softmax
+import numpy as np
 
 
 # returning ASD cosdist alignment to reference tokens
@@ -101,4 +103,5 @@ def get_cosdist_for_ctc(tokens_compressed, label_ids):
                     token_count += 1
             else:
                 cosdist_for_ctc.append(tokens_compressed[token_count][2])
+    # cosdist_softmax = softmax(np.asarray(cosdist_for_ctc))
     return cosdist_for_ctc

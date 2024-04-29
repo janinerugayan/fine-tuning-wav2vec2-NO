@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"  # or "0,1" for multiple GPUs
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"  # or "0,1" for multiple GPUs
 
 import collections
 if not hasattr(collections, "Container"):
@@ -28,6 +28,9 @@ import argparse
 import types
 from customCTCwithASD import compute_CTCloss_withASD
 
+# https://huggingface.co/transformers/main_classes/logging.html
+# verbosity set to print errors only, by default it is set to 30 = error and warnings
+# transformers.logging.set_verbosity(40)
 
 # enabled to find the operation that failed to compute its gradient
 # torch.autograd.set_detect_anomaly(True)
@@ -293,8 +296,13 @@ training_args = TrainingArguments(
   report_to="wandb"
 )
 
-
+# The bare Bert Model transformer outputting raw hidden-states without any specific head on top.
+metric_modelname = 'ltg/norbert2'  # changed to latest version of NorBERT (20-Mar-2023)
+metric_model = BertModel.from_pretrained(metric_modelname)
+metric_tokenizer = AutoTokenizer.from_pretrained(metric_modelname)
+asd_metric = load_metric("asd_metric.py")
 wer_metric = load_metric("wer")
+
 def compute_metrics(pred):
     pred_logits = pred.predictions
     pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
@@ -302,22 +310,13 @@ def compute_metrics(pred):
     label_str = processor_woLM.batch_decode(pred.label_ids, group_tokens=False)  # we do not want to group tokens when computing the metrics
     wer = wer_metric.compute(predictions=pred_str.text, references=label_str) # worked in fine-tuning versions 1 to 14 (wer metric)
     # ADD ASD HERE!
-    return {"wer": wer}
+    asd = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=label_str, hypothesis=pred_str.text)
+    return {"wer": wer, "asd": asd}
 
 print("Available cuda devices:", torch.cuda.device_count())
 
 if args.use_asd_metric == 1:
     print("Setting up Custom Trainer")
-
-    # https://huggingface.co/transformers/main_classes/logging.html
-    # verbosity set to print errors only, by default it is set to 30 = error and warnings
-    transformers.logging.set_verbosity(40)
-    # The bare Bert Model transformer outputting raw hidden-states without any specific head on top.
-    metric_modelname = 'ltg/norbert2'  # changed to latest version of NorBERT (20-Mar-2023)
-    metric_model = BertModel.from_pretrained(metric_modelname)
-    metric_tokenizer = AutoTokenizer.from_pretrained(metric_modelname)
-
-    # asd_metric = load_metric("asd_metric.py")
 
     class CustomTrainer(Trainer):
         def __init__(self, *args, **kwargs):

@@ -142,15 +142,11 @@ def forward_pass_with_ASD(double[::1,:] params,
                     alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1]) * params[blank,t]
             # same label twice
             elif s == 1 or seq[l] == seq[l-1]:
-                alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1]) * params[seq[l],t] * (1 + cosdist_for_ctc[l])
-                # alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1]) * params[seq[l],t] * (1 - cosdist_for_ctc[l])
-                # alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1]) * (((1 - lambda_asd) * params[seq[l],t]) + \
-                # (lambda_asd * (1 - cosdist_for_ctc[l])))
+                alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1]) * params[seq[l],t] * (1 + cosdist_for_ctc[l] * lambda_asd)
+                # alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1]) * params[seq[l],t] * (1 - cosdist_for_ctc[l] * lambda_asd)
             else:
-                alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1] + alphas[s-2,t-1]) * params[seq[l],t] * (1 + cosdist_for_ctc[l])
-                # alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1] + alphas[s-2,t-1]) * params[seq[l],t] * (1 - cosdist_for_ctc[l])
-                # alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1] + alphas[s-2,t-1]) * (((1 - lambda_asd) * (params[seq[l],t])) \
-                # + (lambda_asd * (1 - cosdist_for_ctc[l])))
+                alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1] + alphas[s-2,t-1]) * params[seq[l],t] * (1 + cosdist_for_ctc[l] * lambda_asd)
+                # alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1] + alphas[s-2,t-1]) * params[seq[l],t] * (1 - cosdist_for_ctc[l] * lambda_asd)
 
         # normalize at current time (prevent underflow)
         c = 0.0
@@ -186,15 +182,11 @@ def forward_pass_with_ASD(double[::1,:] params,
                     betas[s,t] = (betas[s,t+1] + betas[s+1,t+1]) * params[blank,t]
             # same label twice
             elif s == L-2 or seq[l] == seq[l+1]:
-                betas[s,t] = (betas[s,t+1] + betas[s+1,t+1]) * params[seq[l],t] * (1 + cosdist_for_ctc[l])
-                # betas[s,t] = (betas[s,t+1] + betas[s+1,t+1]) * params[seq[l],t] * (1 - cosdist_for_ctc[l])
-                # betas[s,t] = (betas[s,t+1] + betas[s+1,t+1]) * (((1 - lambda_asd) * params[seq[l],t]) + \
-                # (lambda_asd * (1 - cosdist_for_ctc[l])))
+                betas[s,t] = (betas[s,t+1] + betas[s+1,t+1]) * params[seq[l],t] * (1 + cosdist_for_ctc[l] * lambda_asd)
+                # betas[s,t] = (betas[s,t+1] + betas[s+1,t+1]) * params[seq[l],t] * (1 - cosdist_for_ctc[l] * lambda_asd)
             else:
-                betas[s,t] = (betas[s,t+1] + betas[s+1,t+1] + betas[s+2,t+1]) * params[seq[l],t] * (1 + cosdist_for_ctc[l])
-                # betas[s,t] = (betas[s,t+1] + betas[s+1,t+1] + betas[s+2,t+1]) * params[seq[l],t] * (1 - cosdist_for_ctc[l])
-                # betas[s,t] = (betas[s,t+1] + betas[s+1,t+1] + betas[s+2,t+1]) * (((1 - lambda_asd) * (params[seq[l],t])) \
-                # + (lambda_asd * (1 - cosdist_for_ctc[l])))
+                betas[s,t] = (betas[s,t+1] + betas[s+1,t+1] + betas[s+2,t+1]) * params[seq[l],t] * (1 + cosdist_for_ctc[l] * lambda_asd)
+                # betas[s,t] = (betas[s,t+1] + betas[s+1,t+1] + betas[s+2,t+1]) * params[seq[l],t] * (1 - cosdist_for_ctc[l] * lambda_asd)
 
         c = 0.0
         for s in range(start,end):

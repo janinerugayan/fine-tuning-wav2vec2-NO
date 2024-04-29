@@ -105,8 +105,13 @@ def compute_CTCloss_withASD(reference_text, predicted_text, ref_label_ids, outpu
         tokens_compressed = asd_for_ctc.get_per_token_cosdist(ref_alignments)
         cosdist_for_ctc = asd_for_ctc.get_cosdist_for_ctc(tokens_compressed, flattened_labels)
         myctcloss = MyCTC.apply
+        if len(flattened_labels) != len(cosdist_for_ctc):
+            raise Exception("cosdist for ctc length not equal to flattened labels length")
         loss[i] = myctcloss(logits, flattened_labels, input_lengths[i], cosdist_for_ctc, lambda_asd)
         # print("loss:", loss[i], "lambda:", lambda_asd)
+        # print("ref:", ref_text)
+        # print("hyp:", pred_text)
+        # print("loss:", loss[i])
     return loss.sum()
 
 
