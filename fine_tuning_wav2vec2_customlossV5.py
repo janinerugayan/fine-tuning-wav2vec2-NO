@@ -9,6 +9,7 @@ import transformers
 from transformers import AutoTokenizer, BertModel
 from transformers import Wav2Vec2CTCTokenizer, Wav2Vec2FeatureExtractor, Wav2Vec2Processor
 from transformers import Wav2Vec2ForCTC, Wav2Vec2ProcessorWithLM, TrainingArguments, Trainer
+from transformers import AutoProcessor, AutoModelForCTC
 from datasets import load_dataset, load_metric, ClassLabel, Audio, Dataset
 import random
 import pandas as pd
@@ -26,7 +27,7 @@ from typing import Any, Dict, List, Optional, Union
 import wandb
 import argparse
 import types
-from customCTCwithASD import compute_CTCloss_withASD
+from customCTCwithASD import compute_CTCloss_withASD, compute_CTCloss_withASD_nbest
 
 # https://huggingface.co/transformers/main_classes/logging.html
 # verbosity set to print errors only, by default it is set to 30 = error and warnings
@@ -161,8 +162,14 @@ model_name = args.original_model
 
 processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
 processor_woLM = Wav2Vec2Processor.from_pretrained(model_name)
+# processor = AutoProcessor.from_pretrained(model_name)
 
-model = Wav2Vec2ForCTC.from_pretrained(
+# model = Wav2Vec2ForCTC.from_pretrained(
+#     model_name,
+#     ctc_loss_reduction="mean",
+#     pad_token_id=processor.tokenizer.pad_token_id,
+# )
+model = AutoModelForCTC.from_pretrained(
     model_name,
     ctc_loss_reduction="mean",
     pad_token_id=processor.tokenizer.pad_token_id,
@@ -232,6 +239,7 @@ class DataCollatorCTCWithPadding:
 
     # processor: Wav2Vec2Processor
     processor: Wav2Vec2ProcessorWithLM
+    # processor: AutoProcessor
     padding: Union[bool, str] = True  # original: True
     max_length: Optional[int] = None
     max_length_labels: Optional[int] = None
@@ -306,12 +314,19 @@ wer_metric = load_metric("wer")
 def compute_metrics(pred):
     pred_logits = pred.predictions
     pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
-
     pred_str = processor.batch_decode(pred_logits)
     label_str = processor_woLM.batch_decode(pred.label_ids, group_tokens=False)  # we do not want to group tokens when computing the metrics
-
     wer = wer_metric.compute(predictions=pred_str.text, references=label_str) # worked in fine-tuning versions 1 to 14 (wer metric)
     asd = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=label_str, hypothesis=pred_str.text)
+
+    # from huggingface repo of wav2vec2 model:
+    # pred_logits = pred.predictions
+    # pred_ids = np.argmax(pred_logits, axis=-1)
+    # pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
+    # pred_str = processor.tokenizer.batch_decode(pred_ids)
+    # label_str = processor.tokenizer.batch_decode(pred.label_ids, group_tokens=False)
+    # wer = wer_metric.compute(predictions=pred_str, references=label_str)
+    # asd = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=label_str, hypothesis=pred_str)
 
     return {"wer": wer, "asd": asd}
 
@@ -335,68 +350,33 @@ if args.use_asd_metric == 1:
             outputs = model(**inputs)
 
             attention_mask = inputs["attention_mask"]
-            # print("attention mask shape:", attention_mask.shape)
             input_lengths = model._get_feat_extract_output_lengths(attention_mask.sum(-1)).to(torch.long)
-            # print("input lengths:", input_lengths)
 
             output_logits = outputs["logits"]
             pred_logits = self._gather_and_numpify(output_logits.detach(), "eval_preds")
             pred_str = processor.batch_decode(pred_logits)
+            
             labels = inputs["labels"]
             labels[labels == -100] = processor.tokenizer.pad_token_id
-            label_str = processor_woLM.batch_decode(labels, group_tokens=False)  # we do not want to group tokens when computing the metrics
+            label_str = processor_woLM.batch_decode(labels, group_tokens=False)
 
-            # print("REF:", label_str, "\n")
-            # print("HYP:", pred_str.text, "\n")
+            # from huggingface repo for wav2vec2 model
+            # pred_ids = np.argmax(pred_logits, axis=-1)
+            # labels[labels == -100] = processor.tokenizer.pad_token_id
+            # pred_str = processor.tokenizer.batch_decode(pred_ids)
+            # label_str = processor.tokenizer.batch_decode(labels, group_tokens=False)
 
             # batched input with only 1 GPU used
-            asd_loss = compute_CTCloss_withASD(reference_text=label_str,
-                                                predicted_text=pred_str.text,
-                                                ref_label_ids=labels,
-                                                output_logits=output_logits,
-                                                input_lengths=input_lengths,
-                                                asd_model=metric_model,
-                                                asd_tokenizer=metric_tokenizer,
-                                                lambda_asd=args.lambda_asd)
+            asd_loss = compute_CTCloss_withASD_nbest(reference_text=label_str,
+                                                    predicted_text=pred_str.text,
+                                                    ref_label_ids=labels,
+                                                    output_logits=output_logits,
+                                                    input_lengths=input_lengths,
+                                                    asd_model=metric_model,
+                                                    asd_tokenizer=metric_tokenizer,
+                                                    lambda_asd=args.lambda_asd)
 
             return (asd_loss, outputs) if return_outputs else asd_loss
-
-            # # batched input with 2 GPUs used
-            # for i in range(torch.cuda.device_count()):
-            #     predicted_text = pred_str.text[i*8:(i+1)*8]
-            #     reference_text = label_str[i*8:(i+1)*8]
-            #     logits = output_logits[i*8:(i+1)*8]
-            #     label_ids = labels[i*8:(i+1)*8]
-            #     if i == 0:
-            #         asd_loss_batch1 = compute_CTCloss_withASD(reference_text=reference_text,
-            #                                                   predicted_text=predicted_text,
-            #                                                   ref_label_ids=label_ids,
-            #                                                   output_logits=logits,
-            #                                                   input_lengths=input_lengths)
-            #                                                 #   asd_model=metric_model,
-            #                                                 #   asd_tokenizer=metric_tokenizer)
-            #     else:
-            #         asd_loss_batch2 = compute_CTCloss_withASD(reference_text=reference_text,
-            #                                                   predicted_text=predicted_text,
-            #                                                   ref_label_ids=label_ids,
-            #                                                   output_logits=logits,
-            #                                                   input_lengths=input_lengths)
-            #                                                 #   asd_model=metric_model,
-            #                                                 #   asd_tokenizer=metric_tokenizer)
-
-            # loss = torch.cat(((asd_loss_batch1).reshape(1), (asd_loss_batch2).reshape(1)), dim=0)
-            # print("2 devices loss:", loss)
-            # return (loss, outputs) if return_outputs else loss
-
-            # # 1 example per batch
-            # loss = compute_CTCloss_withASD(reference_text=[label_str[0]],
-            #                                                 predicted_text=[pred_str.text[0]],
-            #                                                 ref_label_ids=[labels[0]],
-            #                                                 output_logits=[output_logits[0]])
-
-            # return (loss, outputs) if return_outputs else loss
-
-    # trainer.compute_loss = types.MethodType(custom_compute_loss, trainer)
 
     trainer = CustomTrainer(
         model=model,

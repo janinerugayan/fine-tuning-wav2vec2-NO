@@ -1,3 +1,6 @@
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"  # or "0,1" for multiple GPUs
+
 import collections
 if not hasattr(collections, "Container"):
     import collections.abc
@@ -24,6 +27,7 @@ import wandb
 import argparse
 import types
 from customCTCwithASD import sampled_logits_asd_loss
+import torch.nn.functional as F
 # from aulus_notification_bot import NotificationBot
 
 # enabled to find the operation that failed to compute its gradient
@@ -333,31 +337,38 @@ if args.use_asd_metric == 1:
 
             loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
 
-            asd_loss = []
-            for i in range(2):
-                predicted_text = pred_str.text[i*8:(i+1)*8]
-                reference_text = label_str[i*8:(i+1)*8]
-                logits = output_logits[i*8:(i+1)*8]
-                asd_loss.append(sampled_logits_asd_loss(reference_text=reference_text,
-                                                        predicted_text=predicted_text,
-                                                        output_logits=logits,
-                                                        metric_model=metric_model,
-                                                        metric_tokenizer=metric_tokenizer))
+            asd_loss = sampled_logits_asd_loss(reference_text=label_str,
+                                               predicted_text=pred_str.text,
+                                               output_logits=output_logits,
+                                               metric_model=metric_model,
+                                               metric_tokenizer=metric_tokenizer,
+                                               processor=processor)
 
-            new_loss = torch.cat((((args.lambda_asd * asd_loss[0]) + ((1 - args.lambda_asd) * loss[0])).reshape(1),
-                                  ((args.lambda_asd * asd_loss[1]) + ((1 - args.lambda_asd) * loss[1])).reshape(1)), dim=0)
+            # using 2 GPUs:
+            # asd_loss = []
+            # for i in range(2):
+            #     predicted_text = pred_str.text[i*8:(i+1)*8]
+            #     reference_text = label_str[i*8:(i+1)*8]
+            #     logits = output_logits[i*8:(i+1)*8]
+            #     asd_loss.append(sampled_logits_asd_loss(reference_text=reference_text,
+            #                                             predicted_text=predicted_text,
+            #                                             output_logits=logits,
+            #                                             metric_model=metric_model,
+            #                                             metric_tokenizer=metric_tokenizer))
+
+            # new_loss = torch.cat((((args.lambda_asd * asd_loss[0]) + ((1 - args.lambda_asd) * loss[0])).reshape(1),
+            #                       ((args.lambda_asd * asd_loss[1]) + ((1 - args.lambda_asd) * loss[1])).reshape(1)), dim=0)
 
             # new_loss = torch.cat((((args.lambda_asd * asd_loss[0]) + loss[0]).reshape(1),
             #                       ((args.lambda_asd * asd_loss[1]) + loss[1]).reshape(1)), dim=0)
 
-
-            print(new_loss)
+            # print(new_loss)
 
             # with open(args.export_log, "a") as f:
             #     f.write(str(asd_loss_batch1.item()) + ";" + str(new_loss[0].item()) + "\n")
             #     f.write(str(asd_loss_batch2.item()) + ";" + str(new_loss[1].item()) + "\n")
 
-            return (new_loss, outputs) if return_outputs else new_loss
+            return (asd_loss, outputs) if return_outputs else asd_loss
             # return (loss, outputs) if return_outputs else loss
 
     # trainer.compute_loss = types.MethodType(custom_compute_loss, trainer)
