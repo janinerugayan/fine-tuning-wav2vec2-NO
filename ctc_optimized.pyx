@@ -101,10 +101,11 @@ def forward_pass(double[::1,:] params,
 
     return -llForward, llBackward, np.asarray(alphas), np.asarray(betas)
 
+
+
 def forward_pass_with_ASD(double[::1,:] params,
                  int[::1] seq,
                  double[::1] cosdist_for_ctc,
-                 double lambda_asd,
                  unsigned int blank=31):
 
     cdef unsigned int seqLen = seq.shape[0]
@@ -142,11 +143,9 @@ def forward_pass_with_ASD(double[::1,:] params,
                     alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1]) * params[blank,t]
             # same label twice
             elif s == 1 or seq[l] == seq[l-1]:
-                alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1]) * params[seq[l],t] * (1 + cosdist_for_ctc[l] * lambda_asd)
-                # alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1]) * params[seq[l],t] * (1 - cosdist_for_ctc[l] * lambda_asd)
+                alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1]) * params[seq[l],t] * (1 - cosdist_for_ctc[l])
             else:
-                alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1] + alphas[s-2,t-1]) * params[seq[l],t] * (1 + cosdist_for_ctc[l] * lambda_asd)
-                # alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1] + alphas[s-2,t-1]) * params[seq[l],t] * (1 - cosdist_for_ctc[l] * lambda_asd)
+                alphas[s,t] = (alphas[s,t-1] + alphas[s-1,t-1] + alphas[s-2,t-1]) * params[seq[l],t] * (1 - cosdist_for_ctc[l])
 
         # normalize at current time (prevent underflow)
         c = 0.0
@@ -182,11 +181,9 @@ def forward_pass_with_ASD(double[::1,:] params,
                     betas[s,t] = (betas[s,t+1] + betas[s+1,t+1]) * params[blank,t]
             # same label twice
             elif s == L-2 or seq[l] == seq[l+1]:
-                betas[s,t] = (betas[s,t+1] + betas[s+1,t+1]) * params[seq[l],t] * (1 + cosdist_for_ctc[l] * lambda_asd)
-                # betas[s,t] = (betas[s,t+1] + betas[s+1,t+1]) * params[seq[l],t] * (1 - cosdist_for_ctc[l] * lambda_asd)
+                betas[s,t] = (betas[s,t+1] + betas[s+1,t+1]) * params[seq[l],t] * (1 - cosdist_for_ctc[l])
             else:
-                betas[s,t] = (betas[s,t+1] + betas[s+1,t+1] + betas[s+2,t+1]) * params[seq[l],t] * (1 + cosdist_for_ctc[l] * lambda_asd)
-                # betas[s,t] = (betas[s,t+1] + betas[s+1,t+1] + betas[s+2,t+1]) * params[seq[l],t] * (1 - cosdist_for_ctc[l] * lambda_asd)
+                betas[s,t] = (betas[s,t+1] + betas[s+1,t+1] + betas[s+2,t+1]) * params[seq[l],t] * (1 - cosdist_for_ctc[l])
 
         c = 0.0
         for s in range(start,end):
@@ -196,6 +193,8 @@ def forward_pass_with_ASD(double[::1,:] params,
         llBackward += math.log(c)
 
     return -llForward, llBackward, np.asarray(alphas), np.asarray(betas)
+
+
 
 def backward_pass(double[::1,:] params,
                  int[::1] seq,

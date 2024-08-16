@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"  # or "0,1" for multiple GPUs
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"  # or "0,1" for multiple GPUs
 
 import collections
 if not hasattr(collections, "Container"):
@@ -17,7 +17,7 @@ import numpy as np
 import librosa
 import os
 import torch
-from pydub import AudioSegment
+# from pydub import AudioSegment
 from IPython.display import display, HTML
 import re
 import json
@@ -26,7 +26,11 @@ from typing import Any, Dict, List, Optional, Union
 import wandb
 import argparse
 import types
-from customCTCwithASD import compute_CTCloss_withASD
+from customCTCwithASD import (compute_CTCloss_withASD, compute_CTCloss_nbest,
+                              compute_sampled_meanASD, sampled_pair_hinge_loss,
+                              sampled_multi_hinge_loss, sampled_multi_expected_ASD,
+                              sampled_multi_expected_ASD_ver2)
+
 
 # https://huggingface.co/transformers/main_classes/logging.html
 # verbosity set to print errors only, by default it is set to 30 = error and warnings
@@ -36,6 +40,7 @@ from customCTCwithASD import compute_CTCloss_withASD
 # torch.autograd.set_detect_anomaly(True)
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+print("DEVICE:", device)
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -185,11 +190,11 @@ print("Loading dataset direct from data dir to pandas dataframe")
 #                  "../../datasets/NordTrans_TUL/train/NRK/",
 #                  "../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25per_30secmax/"]
 
-data_dir_list = ["../../datasets/NordTrans_TUL/train_small/Stortinget/",
-                 "../../datasets/NordTrans_TUL/train_small/NRK/",
-                 "../../datasets/NordTrans_TUL/train_small/Rundkast/"]
+# data_dir_list = ["../../datasets/NordTrans_TUL/train_small/Stortinget/",
+#                  "../../datasets/NordTrans_TUL/train_small/NRK/",
+#                  "../../datasets/NordTrans_TUL/train_small/Rundkast/"]
 
-# data_dir_list = ["../../datasets/NordTrans_TUL/train_small/Rundkast/"]
+data_dir_list = ["../../datasets/NordTrans_TUL/train_small/Rundkast/"]
 
 csv_export_dir = "../../model_ckpts/" + args.fine_tuned_model_ver + "/runs/"
 
@@ -278,14 +283,18 @@ training_args = TrainingArguments(
   group_by_length=True,
   per_device_train_batch_size=8,  # orig: 8
   per_device_eval_batch_size=8,  # orig: 8
+#   gradient_accumulation_steps=4,  # not in the original source/reference
   eval_accumulation_steps=100,
   evaluation_strategy="steps",
   num_train_epochs=args.num_train_epochs,  # orig: 30
   fp16=True,  # orig: True
   gradient_checkpointing=True,
-  save_steps=500,  # orig: 500
-  eval_steps=500,  # orig: 500
-  logging_steps=500,  # orig: 500
+  save_steps=300,  # for one dataset exp
+  eval_steps=300,  # for one dataset exp
+  logging_steps=300,  # for one dataset exp
+#   save_steps=500,  # orig: 500
+#   eval_steps=500,  # orig: 500
+#   logging_steps=500,  # orig: 500
   learning_rate=args.learning_rate,  # orig: 1e-4
   weight_decay=0.005,
   warmup_steps=2000,  # orig: 1000
@@ -311,6 +320,7 @@ def compute_metrics(pred):
     wer = wer_metric.compute(predictions=pred_str.text, references=label_str) # worked in fine-tuning versions 1 to 14 (wer metric)
     # ADD ASD HERE!
     asd = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=label_str, hypothesis=pred_str.text)
+
     return {"wer": wer, "asd": asd}
 
 print("Available cuda devices:", torch.cuda.device_count())
@@ -345,15 +355,48 @@ if args.use_asd_metric == 1:
             # print("REF:", label_str)
             # print("HYP:", pred_str.text)
 
-            # batched input with only 1 GPU used
-            asd_loss = compute_CTCloss_withASD(reference_text=label_str,
-                                                predicted_text=pred_str.text,
-                                                ref_label_ids=labels,
-                                                output_logits=output_logits,
-                                                input_lengths=input_lengths,
-                                                asd_model=metric_model,
-                                                asd_tokenizer=metric_tokenizer,
-                                                lambda_asd=args.lambda_asd)
+            '''
+            batched input with only 1 GPU used
+            - nbest loss: data augmentation using top ranking nbest hypothesis as target for additional CTC loss
+            - pair loss: taking a pair using gumbel softmax sampling and calculating hinge loss of their mass prob
+            '''
+
+            # asd_loss = compute_CTCloss_withASD(reference_text=label_str,
+            #                                    predicted_text=pred_str.text,
+            #                                    ref_label_ids=labels,
+            #                                    output_logits=output_logits,
+            #                                    input_lengths=input_lengths,
+            #                                    asd_model=metric_model,
+            #                                    asd_tokenizer=metric_tokenizer)
+
+            # nbest_loss = compute_CTCloss_nbest(reference_text=label_str,
+            #                                 output_logits=output_logits,
+            #                                 input_lengths=input_lengths,
+            #                                 asd_model=metric_model,
+            #                                 asd_tokenizer=metric_tokenizer)
+
+            # asd_loss = outputs["loss"] + (args.lambda_asd * nbest_loss)
+
+            # pair_loss = sampled_pair_hinge_loss(ref_text=label_str,
+            #                                     output_logits=output_logits,
+            #                                     input_lengths=input_lengths,
+            #                                     asd_model=metric_model,
+            #                                     asd_tokenizer=metric_tokenizer,
+            #                                     processor=processor)
+
+            # asd_loss = outputs["loss"] + (args.lambda_asd * pair_loss)
+
+            expectedASD_loss = sampled_multi_expected_ASD_ver2(ref_text=label_str,
+                                                          output_logits=output_logits,
+                                                          input_lengths=input_lengths,
+                                                          asd_model=metric_model,
+                                                          asd_tokenizer=metric_tokenizer,
+                                                          processor=processor)
+
+            # asd_loss = outputs["loss"] + (args.lambda_asd * expectedASD_loss)
+            # asd_loss = ((1 - args.lambda_asd) * outputs["loss"]) + (args.lambda_asd * expectedASD_loss)  #expectedASD2
+            # asd_loss = (args.lambda_asd * outputs["loss"]) + expectedASD_loss  #expectedASD3
+            asd_loss = ((1 - args.lambda_asd) * outputs["loss"]) + (args.lambda_asd * expectedASD_loss)  #expectedASD4
 
             return (asd_loss, outputs) if return_outputs else asd_loss
 
