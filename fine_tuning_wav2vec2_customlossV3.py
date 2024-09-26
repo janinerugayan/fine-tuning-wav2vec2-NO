@@ -5,31 +5,29 @@ import collections
 if not hasattr(collections, "Container"):
     import collections.abc
     collections.Container = collections.abc.Container
-import transformers
+# import transformers
 from transformers import AutoTokenizer, BertModel
 from transformers import Wav2Vec2CTCTokenizer, Wav2Vec2FeatureExtractor, Wav2Vec2Processor
 from transformers import Wav2Vec2ForCTC, Wav2Vec2ProcessorWithLM, TrainingArguments, Trainer
 from datasets import load_dataset, load_metric, ClassLabel, Audio, Dataset
 import random
 import pandas as pd
-import math
+# import math
 import numpy as np
-import librosa
+# import librosa
 import os
 import torch
 # from pydub import AudioSegment
-from IPython.display import display, HTML
+# from IPython.display import display, HTML
 import re
 import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 import wandb
 import argparse
-import types
-from customCTCwithASD import (compute_CTCloss_withASD, compute_CTCloss_nbest,
-                              compute_sampled_meanASD, sampled_pair_hinge_loss,
-                              sampled_multi_hinge_loss, sampled_multi_expected_ASD,
-                              sampled_multi_expected_ASD_ver2)
+# import types
+from customCTCwithASD import *
+import sys
 
 
 # https://huggingface.co/transformers/main_classes/logging.html
@@ -340,102 +338,49 @@ if args.use_asd_metric == 1:
             """
 
             outputs = model(**inputs)
+            log_probs = F.log_softmax(outputs["logits"], dim=-1, dtype=torch.float32)
 
             attention_mask = inputs["attention_mask"]
             # print("attention mask shape:", attention_mask.shape)
             input_lengths = model._get_feat_extract_output_lengths(attention_mask.sum(-1)).to(torch.long)
-            # print("input lengths:", input_lengths)
 
-            output_logits = outputs["logits"]
-            pred_logits = self._gather_and_numpify(output_logits.detach(), "eval_preds")
-            pred_str = processor.batch_decode(pred_logits)
+            # output_logits = outputs["logits"].to(torch.float32)
+            # pred_logits = self._gather_and_numpify(output_logits.detach(), "eval_preds")
+            # pred_str = processor.batch_decode(pred_logits)
             labels = inputs["labels"]
             label_str = processor_woLM.batch_decode(labels, group_tokens=False)  # we do not want to group tokens when computing the metrics
 
-            # print("REF:", label_str)
-            # print("HYP:", pred_str.text)
+            labels = inputs["labels"]
+            labels_length = torch.zeros((labels.size(dim=0)), device=device)
+            for i in range(labels.size(dim=0)):
+                labels_mask = labels[i] >= 0
+                labels_length[i] = len(labels[i].masked_select(labels_mask))
+            labels_length = labels_length.to(torch.int)
 
-            '''
-            batched input with only 1 GPU used
-            - nbest loss: data augmentation using top ranking nbest hypothesis as target for additional CTC loss
-            - pair loss: taking a pair using gumbel softmax sampling and calculating hinge loss of their mass prob
-            '''
+            """
+            minimum ASD loss
+            """
+            # mwer = MWERLoss(vocab_size=34, subsampling_factor=1, reduction="mean")
+            # masd_loss = mwer(emissions=log_probs, emissions_lengths=input_lengths, labels=labels,
+            #                  labels_length=labels_length)
+            # total_loss =  outputs["loss"] + masd_loss
+            # total_loss = masd_loss
+            asd_loss = sampled_multi_expected_ASD_ver3(label_str, outputs["logits"], input_lengths,
+                                                       metric_model, metric_tokenizer, processor)
+            total_loss = asd_loss
+            # sys.exit()
 
-            # asd_loss = compute_CTCloss_withASD(reference_text=label_str,
-            #                                    predicted_text=pred_str.text,
-            #                                    ref_label_ids=labels,
-            #                                    output_logits=output_logits,
-            #                                    input_lengths=input_lengths,
-            #                                    asd_model=metric_model,
-            #                                    asd_tokenizer=metric_tokenizer)
+            """
+            nbest with asd loss
+            """
+            # nbest_loss = compute_nbest_asd(label_str, outputs["logits"], input_lengths, metric_model, metric_tokenizer)
+            # # total_loss = ((1 - args.lambda_asd) * outputs["loss"]) + (args.lambda_asd * nbest_loss)
+            # total_loss = nbest_loss
+            # print("total loss:", total_loss)
+            # sys.exit()
 
-            # nbest_loss = compute_CTCloss_nbest(reference_text=label_str,
-            #                                 output_logits=output_logits,
-            #                                 input_lengths=input_lengths,
-            #                                 asd_model=metric_model,
-            #                                 asd_tokenizer=metric_tokenizer)
+            return (total_loss, outputs) if return_outputs else total_loss
 
-            # asd_loss = outputs["loss"] + (args.lambda_asd * nbest_loss)
-
-            # pair_loss = sampled_pair_hinge_loss(ref_text=label_str,
-            #                                     output_logits=output_logits,
-            #                                     input_lengths=input_lengths,
-            #                                     asd_model=metric_model,
-            #                                     asd_tokenizer=metric_tokenizer,
-            #                                     processor=processor)
-
-            # asd_loss = outputs["loss"] + (args.lambda_asd * pair_loss)
-
-            expectedASD_loss = sampled_multi_expected_ASD_ver2(ref_text=label_str,
-                                                          output_logits=output_logits,
-                                                          input_lengths=input_lengths,
-                                                          asd_model=metric_model,
-                                                          asd_tokenizer=metric_tokenizer,
-                                                          processor=processor)
-
-            # asd_loss = outputs["loss"] + (args.lambda_asd * expectedASD_loss)
-            # asd_loss = ((1 - args.lambda_asd) * outputs["loss"]) + (args.lambda_asd * expectedASD_loss)  #expectedASD2
-            # asd_loss = (args.lambda_asd * outputs["loss"]) + expectedASD_loss  #expectedASD3
-            asd_loss = ((1 - args.lambda_asd) * outputs["loss"]) + (args.lambda_asd * expectedASD_loss)  #expectedASD4
-
-            return (asd_loss, outputs) if return_outputs else asd_loss
-
-            # # batched input with 2 GPUs used
-            # for i in range(torch.cuda.device_count()):
-            #     predicted_text = pred_str.text[i*8:(i+1)*8]
-            #     reference_text = label_str[i*8:(i+1)*8]
-            #     logits = output_logits[i*8:(i+1)*8]
-            #     label_ids = labels[i*8:(i+1)*8]
-            #     if i == 0:
-            #         asd_loss_batch1 = compute_CTCloss_withASD(reference_text=reference_text,
-            #                                                   predicted_text=predicted_text,
-            #                                                   ref_label_ids=label_ids,
-            #                                                   output_logits=logits,
-            #                                                   input_lengths=input_lengths)
-            #                                                 #   asd_model=metric_model,
-            #                                                 #   asd_tokenizer=metric_tokenizer)
-            #     else:
-            #         asd_loss_batch2 = compute_CTCloss_withASD(reference_text=reference_text,
-            #                                                   predicted_text=predicted_text,
-            #                                                   ref_label_ids=label_ids,
-            #                                                   output_logits=logits,
-            #                                                   input_lengths=input_lengths)
-            #                                                 #   asd_model=metric_model,
-            #                                                 #   asd_tokenizer=metric_tokenizer)
-
-            # loss = torch.cat(((asd_loss_batch1).reshape(1), (asd_loss_batch2).reshape(1)), dim=0)
-            # print("2 devices loss:", loss)
-            # return (loss, outputs) if return_outputs else loss
-
-            # # 1 example per batch
-            # loss = compute_CTCloss_withASD(reference_text=[label_str[0]],
-            #                                                 predicted_text=[pred_str.text[0]],
-            #                                                 ref_label_ids=[labels[0]],
-            #                                                 output_logits=[output_logits[0]])
-
-            # return (loss, outputs) if return_outputs else loss
-
-    # trainer.compute_loss = types.MethodType(custom_compute_loss, trainer)
 
     trainer = CustomTrainer(
         model=model,
