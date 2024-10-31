@@ -5,27 +5,22 @@ import collections
 if not hasattr(collections, "Container"):
     import collections.abc
     collections.Container = collections.abc.Container
-# import transformers
+
 from transformers import AutoTokenizer, BertModel
 from transformers import Wav2Vec2CTCTokenizer, Wav2Vec2FeatureExtractor, Wav2Vec2Processor
 from transformers import Wav2Vec2ForCTC, Wav2Vec2ProcessorWithLM, TrainingArguments, Trainer
 from datasets import load_dataset, load_metric, ClassLabel, Audio, Dataset
 import random
 import pandas as pd
-# import math
 import numpy as np
-# import librosa
 import os
 import torch
-# from pydub import AudioSegment
-# from IPython.display import display, HTML
 import re
 import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 import wandb
 import argparse
-# import types
 from customCTCwithASD import *
 import sys
 
@@ -162,18 +157,25 @@ print("Loading pretrained model " + args.original_model)
 
 model_name = args.original_model
 
-processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
-processor_woLM = Wav2Vec2Processor.from_pretrained(model_name)
+processor = Wav2Vec2ProcessorWithLM.from_pretrained("NbAiLab/nb-wav2vec2-300m-bokmaal")
+processor_woLM = Wav2Vec2Processor.from_pretrained("NbAiLab/nb-wav2vec2-300m-bokmaal")
 
 model = Wav2Vec2ForCTC.from_pretrained(
     model_name,
+    attention_dropout=0.1,
+    hidden_dropout=0.1,
+    feat_proj_dropout=0.0,
+    mask_time_prob=0.05,
+    layerdrop=0.1,
     ctc_loss_reduction="mean",
     pad_token_id=processor.tokenizer.pad_token_id,
+    vocab_size=len(processor.tokenizer)
 )
 model = model.to(device)
 
 # feature extraction does not need further fine-tuning
 model.freeze_feature_encoder()
+model.gradient_checkpointing_enable()
 
 
 
@@ -281,7 +283,6 @@ training_args = TrainingArguments(
   group_by_length=True,
   per_device_train_batch_size=8,  # orig: 8
   per_device_eval_batch_size=8,  # orig: 8
-#   gradient_accumulation_steps=4,  # not in the original source/reference
   eval_accumulation_steps=100,
   evaluation_strategy="steps",
   num_train_epochs=args.num_train_epochs,  # orig: 30
@@ -296,7 +297,7 @@ training_args = TrainingArguments(
   learning_rate=args.learning_rate,  # orig: 1e-4
   weight_decay=0.005,
   warmup_steps=2000,  # orig: 1000
-#   save_total_limit=2,
+  save_total_limit=2,
   push_to_hub=False,
   seed=42,
   data_seed=42,
@@ -339,12 +340,10 @@ if args.use_asd_metric == 1:
 
             outputs = model(**inputs)
             logits = outputs["logits"]
-            # log_probs = F.log_softmax(outputs["logits"], dim=-1, dtype=torch.float32)
+            # log_probs = F.log_softmax(logits, dim=-1, dtype=torch.float32)
 
             attention_mask = inputs["attention_mask"]
-            # print("attention mask shape:", attention_mask.shape)
             input_lengths = model._get_feat_extract_output_lengths(attention_mask.sum(-1)).to(torch.long)
-            # print("input_lengths:", input_lengths)
 
             # output_logits = outputs["logits"].to(torch.float32)
             # pred_logits = self._gather_and_numpify(output_logits.detach(), "eval_preds")
@@ -353,11 +352,11 @@ if args.use_asd_metric == 1:
             label_str = processor_woLM.batch_decode(labels, group_tokens=False)  # we do not want to group tokens when computing the metrics
 
             # labels = inputs["labels"]
-            # labels_length = torch.zeros((labels.size(dim=0)), device=device)
-            # for i in range(labels.size(dim=0)):
-            #     labels_mask = labels[i] >= 0
-            #     labels_length[i] = len(labels[i].masked_select(labels_mask))
-            # labels_length = labels_length.to(torch.int)
+            labels_length = torch.zeros((labels.size(dim=0)), device=device)
+            for i in range(labels.size(dim=0)):
+                labels_mask = labels[i] >= 0
+                labels_length[i] = len(labels[i].masked_select(labels_mask))
+            labels_length = labels_length.to(torch.int)
 
             """
             minimum ASD loss
@@ -365,11 +364,13 @@ if args.use_asd_metric == 1:
             # mwer = MWERLoss(vocab_size=34, subsampling_factor=1, reduction="mean")
             # masd_loss = mwer(emissions=log_probs, emissions_lengths=input_lengths, labels=labels,
             #                  labels_length=labels_length)
-            # total_loss =  outputs["loss"] + masd_loss
+            # total_loss =  outputs["loss"] + (args.lambda_asd * masd_loss)
+            # total_loss =  (args.lambda_asd * outputs["loss"]) + masd_loss  # mwer4
             # total_loss = masd_loss
+
             # asd_loss = sampled_multi_expected_ASD_ver3(label_str, outputs["logits"], input_lengths,
-            #                                            metric_model, metric_tokenizer, processor)
-            # total_loss = (args.lambda_asd * outputs["loss"]) + asd_loss
+            #                                             metric_model, metric_tokenizer, processor)
+            # total_loss = outputs["loss"] + (args.lambda_asd * asd_loss)
             # total_loss = asd_loss
             # sys.exit()
 
@@ -383,12 +384,13 @@ if args.use_asd_metric == 1:
             # sys.exit()
 
             """
-            MASD Loss
+            MWER loss with CE
             """
             candidate_paths_num = 3
             sampling_method = "beam_search"
             reduction = "mean"
-            masd_loss = Seq2seqMASDLoss(sampling_method, candidate_paths_num, reduction)
+            eos_id = 33
+            masd_loss = Seq2seqMASDLoss(sampling_method, candidate_paths_num, reduction, eos_id)
             nbest_log_distribution, nlog_probs = masd_loss.get_logits_for_decoding(logits, input_lengths)
 
             # getting the hypothesis
@@ -397,15 +399,11 @@ if args.use_asd_metric == 1:
                 hyp_logits = nlog_probs[i].to(torch.float32)
                 pred_logits = self._gather_and_numpify(hyp_logits, "eval_preds")
                 hyp_list.append(processor.batch_decode(pred_logits).text)
-                # print("SAMPLE", i, ":", processor.batch_decode(pred_logits).text, "\n")
 
             loss = masd_loss(nbest_log_distribution, label_str, hyp_list, metric_model, metric_tokenizer)
+            print("masd loss:", loss)
 
-            total_loss = (outputs["loss"] * args.lambda_asd) + ((1 - args.lambda_asd) * loss)
-            # total_loss = (outputs["loss"] * args.lambda_asd) + loss  # experiment group iv
-
-            # print("total_loss:", total_loss)
-            # sys.exit()
+            total_loss = (args.lambda_asd * outputs["loss"]) + loss
 
             return (total_loss, outputs) if return_outputs else total_loss
 

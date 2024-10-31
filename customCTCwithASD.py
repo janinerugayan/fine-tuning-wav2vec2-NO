@@ -1,24 +1,7 @@
-# from transformers import AutoTokenizer, BertModel
-# from transformers import Wav2Vec2CTCTokenizer, Wav2Vec2FeatureExtractor, Wav2Vec2Processor
-# from transformers import Wav2Vec2ForCTC, Wav2Vec2ProcessorWithLM, TrainingArguments, Trainer
-# from datasets import load_dataset, load_metric, ClassLabel, Audio, Dataset
-# import random
-# import pandas as pd
-# import math
 import numpy as np
-# import librosa
-# import os
 import torch
-# from pydub import AudioSegment
-# from IPython.display import display, HTML
 import re
-# import json
-# from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union, Literal
-# import wandb
-# import argparse
-# import types
-# from tabulate import tabulate
+from typing import Any, Dict, List, Optional, Union, Literal, Tuple
 from dtw import *
 import torch
 import torch.nn.functional as F
@@ -29,12 +12,21 @@ import asd_for_ctc  # to extract ASD metric aligned to label seq for CTC loss ca
 
 from torchaudio.models.decoder import ctc_decoder
 
-import k2
-import k2.ragged as k2r
+# import k2
+# import k2.ragged as k2r
 
+from customloss_utils import (
+    IGNORE_ID,
+    MIN_LOG_VAL,
+    make_pad_mask,
+    mask_finished_preds,
+    mask_finished_scores
+)
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
 
 
 def compute_asd_score_single_utt(model, tokenizer, reference, hypothesis):
@@ -59,6 +51,80 @@ def compute_asd_score_single_utt(model, tokenizer, reference, hypothesis):
     num_tokens = len(output_mean_reference)
     asd_score = alignment.distance / num_tokens
     return asd_score
+
+
+def compute_asd_score_single_utt_no_norm(model, tokenizer, reference, hypothesis):
+    ref_text = reference.replace("[UNK]", "")
+    hyp_text = hypothesis.replace("[UNK]", "")
+    tokenized_ref = tokenizer(ref_text, padding=True, truncation=True, max_length=512, return_tensors="pt")
+    tokenized_hyp = tokenizer(hyp_text, padding=True, truncation=True, max_length=512, return_tensors="pt")
+    with torch.no_grad():
+        model_output_ref = model(**tokenized_ref, output_hidden_states=True)
+        model_output_hyp = model(**tokenized_hyp, output_hidden_states=True)
+    hidden_states_ref = model_output_ref.hidden_states
+    hidden_states_hyp = model_output_hyp.hidden_states
+    all_layers_reference = [hidden_states_ref[1].squeeze(), hidden_states_ref[2].squeeze(), hidden_states_ref[3].squeeze(), hidden_states_ref[4].squeeze(),
+                            hidden_states_ref[5].squeeze(), hidden_states_ref[6].squeeze(), hidden_states_ref[7].squeeze(), hidden_states_ref[8].squeeze(),
+                            hidden_states_ref[9].squeeze(), hidden_states_ref[10].squeeze(), hidden_states_ref[11].squeeze(), hidden_states_ref[12].squeeze()]
+    all_layers_hypothesis = [hidden_states_hyp[1].squeeze(), hidden_states_hyp[2].squeeze(), hidden_states_hyp[3].squeeze(), hidden_states_hyp[4].squeeze(),
+                                hidden_states_hyp[5].squeeze(), hidden_states_hyp[6].squeeze(), hidden_states_hyp[7].squeeze(), hidden_states_hyp[8].squeeze(),
+                                hidden_states_hyp[9].squeeze(), hidden_states_hyp[10].squeeze(), hidden_states_hyp[11].squeeze(), hidden_states_hyp[12].squeeze()]
+    output_mean_reference = torch.stack(all_layers_reference).mean(dim=0)
+    output_mean_hypothesis = torch.stack(all_layers_hypothesis).mean(dim=0)
+    alignment = dtw(output_mean_hypothesis, output_mean_reference, dist_method=distance.cosine, keep_internals=True)
+    num_tokens = len(output_mean_reference)
+    asd_score = alignment.distance
+    return asd_score
+
+
+def compute_asd_score_batch(model, tokenizer, reference, hypothesis):
+    asd_score = []
+    for ref_text, hyp_text in zip(reference, hypothesis):
+        ref_text = ref_text.replace("[UNK]", "")  # removes the [UNK] token in the reference text, observed during training
+        hyp_text = hyp_text.replace("[UNK]", "")
+        tokenized_ref = tokenizer(ref_text, padding=True, truncation=True, max_length=512, return_tensors="pt")
+        tokenized_hyp = tokenizer(hyp_text, padding=True, truncation=True, max_length=512, return_tensors="pt")
+        with torch.no_grad():
+            model_output_ref = model(**tokenized_ref, output_hidden_states=True)
+            model_output_hyp = model(**tokenized_hyp, output_hidden_states=True)
+        hidden_states_ref = model_output_ref.hidden_states
+        hidden_states_hyp = model_output_hyp.hidden_states
+        all_layers_reference = [hidden_states_ref[1].squeeze(), hidden_states_ref[2].squeeze(), hidden_states_ref[3].squeeze(), hidden_states_ref[4].squeeze(),
+                                hidden_states_ref[5].squeeze(), hidden_states_ref[6].squeeze(), hidden_states_ref[7].squeeze(), hidden_states_ref[8].squeeze(),
+                                hidden_states_ref[9].squeeze(), hidden_states_ref[10].squeeze(), hidden_states_ref[11].squeeze(), hidden_states_ref[12].squeeze()]
+        all_layers_hypothesis = [hidden_states_hyp[1].squeeze(), hidden_states_hyp[2].squeeze(), hidden_states_hyp[3].squeeze(), hidden_states_hyp[4].squeeze(),
+                                    hidden_states_hyp[5].squeeze(), hidden_states_hyp[6].squeeze(), hidden_states_hyp[7].squeeze(), hidden_states_hyp[8].squeeze(),
+                                    hidden_states_hyp[9].squeeze(), hidden_states_hyp[10].squeeze(), hidden_states_hyp[11].squeeze(), hidden_states_hyp[12].squeeze()]
+        output_mean_reference = torch.stack(all_layers_reference).mean(dim=0)
+        output_mean_hypothesis = torch.stack(all_layers_hypothesis).mean(dim=0)
+        alignment = dtw(output_mean_hypothesis, output_mean_reference, dist_method=distance.cosine, keep_internals=True)
+        num_tokens = len(output_mean_reference)
+        asd_score.append((alignment.distance / num_tokens))
+    return asd_score
+
+
+def get_mass_prob(paths, softmax_ctc, model_pred_length, eps: float = 1e-7):
+    """
+    compute the path probability mass
+    :param paths: ctc alignments
+    :param softmax_ctc: model logits after softmax
+    :param model_pred_length:  max length of all given paths
+    :return: avg of the paths probability
+    """
+    log_indexes_probs = softmax_ctc.gather(dim=1, index=paths) + eps
+    if len(log_indexes_probs) > model_pred_length:
+        log_indexes_probs[model_pred_length:, :] = torch.zeros((log_indexes_probs.shape[0] - model_pred_length, 1))
+    return torch.sum(log_indexes_probs, dim=0) / (model_pred_length.unsqueeze(-1))  # torch.sum dim=0 (original)
+
+
+def get_paths(sampled_logits):
+    paths_list = []
+    index_list = torch.argmax(sampled_logits, dim=1)
+    for idx in index_list:
+        paths_list.append([idx])
+    return torch.tensor(paths_list).type(torch.LongTensor).to(device)
+
+
 
 
 # INCORPORATING ASD COSDIST VALUES TO THE CTC CALCULATION
@@ -192,6 +258,7 @@ def compute_CTCloss_nbest(reference_text, output_logits, input_lengths, asd_mode
     return loss
 
 
+# this one did not affect the model outputs i think
 def compute_nbest_asd(reference_text, output_logits, input_lengths, asd_model, asd_tokenizer):
     decoder = ctc_decoder(lexicon=None, tokens="tokens.txt", nbest=10, beam_size=100, blank_token="[PAD]",
                           sil_token="|", unk_word="[UNK]")
@@ -222,33 +289,10 @@ def compute_nbest_asd(reference_text, output_logits, input_lengths, asd_model, a
     return loss.mean()
 
 
+
+
 # ===================================================
 # CTC with Gumbel-Softmax sampled ASD scoring
-def compute_asd_score_batch(model, tokenizer, reference, hypothesis):
-    asd_score = []
-    for ref_text, hyp_text in zip(reference, hypothesis):
-        ref_text = ref_text.replace("[UNK]", "")  # removes the [UNK] token in the reference text, observed during training
-        hyp_text = hyp_text.replace("[UNK]", "")
-        tokenized_ref = tokenizer(ref_text, padding=True, truncation=True, max_length=512, return_tensors="pt")
-        tokenized_hyp = tokenizer(hyp_text, padding=True, truncation=True, max_length=512, return_tensors="pt")
-        with torch.no_grad():
-            model_output_ref = model(**tokenized_ref, output_hidden_states=True)
-            model_output_hyp = model(**tokenized_hyp, output_hidden_states=True)
-        hidden_states_ref = model_output_ref.hidden_states
-        hidden_states_hyp = model_output_hyp.hidden_states
-        all_layers_reference = [hidden_states_ref[1].squeeze(), hidden_states_ref[2].squeeze(), hidden_states_ref[3].squeeze(), hidden_states_ref[4].squeeze(),
-                                hidden_states_ref[5].squeeze(), hidden_states_ref[6].squeeze(), hidden_states_ref[7].squeeze(), hidden_states_ref[8].squeeze(),
-                                hidden_states_ref[9].squeeze(), hidden_states_ref[10].squeeze(), hidden_states_ref[11].squeeze(), hidden_states_ref[12].squeeze()]
-        all_layers_hypothesis = [hidden_states_hyp[1].squeeze(), hidden_states_hyp[2].squeeze(), hidden_states_hyp[3].squeeze(), hidden_states_hyp[4].squeeze(),
-                                    hidden_states_hyp[5].squeeze(), hidden_states_hyp[6].squeeze(), hidden_states_hyp[7].squeeze(), hidden_states_hyp[8].squeeze(),
-                                    hidden_states_hyp[9].squeeze(), hidden_states_hyp[10].squeeze(), hidden_states_hyp[11].squeeze(), hidden_states_hyp[12].squeeze()]
-        output_mean_reference = torch.stack(all_layers_reference).mean(dim=0)
-        output_mean_hypothesis = torch.stack(all_layers_hypothesis).mean(dim=0)
-        alignment = dtw(output_mean_hypothesis, output_mean_reference, dist_method=distance.cosine, keep_internals=True)
-        num_tokens = len(output_mean_reference)
-        asd_score.append((alignment.distance / num_tokens))
-    return asd_score
-
 
 def sampled_logits_asd_loss(reference_text, predicted_text, output_logits, metric_model, metric_tokenizer):
     # calculate asd scores for batch:
@@ -287,65 +331,31 @@ def compute_sampled_meanASD(reference_text, output_logits, asd_model, asd_tokeni
     return torch.mean(loss)
 
 
-def get_mass_prob(paths, softmax_ctc, model_pred_length, eps: float = 1e-7):
-    """
-    compute the path probability mass
-    :param paths: ctc alignments
-    :param softmax_ctc: model logits after softmax
-    :param model_pred_length:  max length of all given paths
-    :return: avg of the paths probability
-    """
-    log_indexes_probs = softmax_ctc.gather(dim=1, index=paths) + eps
-    if len(log_indexes_probs) > model_pred_length:
-        log_indexes_probs[model_pred_length:, :] = torch.zeros((log_indexes_probs.shape[0] - model_pred_length, 1))
-    return torch.sum(log_indexes_probs, dim=0) / (model_pred_length.unsqueeze(-1))  # torch.sum dim changed from dim=0 (original)
-
-
 def sampled_pair_hinge_loss(ref_text, output_logits, input_lengths, asd_model, asd_tokenizer, processor):
     loss = torch.zeros((len(ref_text)), requires_grad=True, device=device).double()
     for i in range(len(ref_text)):
         log_probs = F.log_softmax(output_logits[i], dim=-1, dtype=torch.float32)
-        non_zero_logits = []
+        # non_zero_logits = []
+        paths_list = []
         non_zero_asd = []
         while len(non_zero_asd) < 2:
             sampled_logits = F.gumbel_softmax(output_logits[i], tau=100, hard=True, dim=-1)
             hyp_text = processor.decode(sampled_logits.detach().cpu().numpy()).text
             asd_score = compute_asd_score_single_utt(asd_model, asd_tokenizer, ref_text[i], hyp_text)
             if asd_score != 0:
-                non_zero_logits.append(sampled_logits)
+                # non_zero_logits.append(sampled_logits)
+                paths_list.append(get_paths(sampled_logits))
                 non_zero_asd.append(asd_score)
-        mass_prob_0 = get_mass_prob(non_zero_logits[0].type(torch.LongTensor).to(device), log_probs, input_lengths[i])
-        mass_prob_1 = get_mass_prob(non_zero_logits[1].type(torch.LongTensor).to(device), log_probs, input_lengths[i])
+        # mass_prob_0 = get_mass_prob(non_zero_logits[0].type(torch.LongTensor).to(device), log_probs, input_lengths[i])
+        # mass_prob_1 = get_mass_prob(non_zero_logits[1].type(torch.LongTensor).to(device), log_probs, input_lengths[i])
+        mass_prob_0 = get_mass_prob(paths_list[0], log_probs, input_lengths[i])
+        mass_prob_1 = get_mass_prob(paths_list[1], log_probs, input_lengths[i])
         if non_zero_asd[0] < non_zero_asd[1]:
             subtract_path_probs = mass_prob_1 - mass_prob_0
         else:
             subtract_path_probs = mass_prob_0 - mass_prob_1
-        loss[i] = torch.sum(torch.clamp(subtract_path_probs, min=0))
-    return torch.mean(loss)
-
-
-def sampled_pair_hinge_loss_ver2(ref_text, output_logits, input_lengths, asd_model, asd_tokenizer, processor):
-    loss = torch.zeros((len(ref_text)), requires_grad=True, device=device).double()
-    for i in range(len(ref_text)):
-        log_probs = F.log_softmax(output_logits[i], dim=-1, dtype=torch.float32)
-        sampled_logits = []
-        asd_score = []
-        while len(sampled_logits) < 2:
-            logits = F.gumbel_softmax(output_logits[i], tau=100, hard=True, dim=-1)
-            sampled_logits.append(logits)
-            hyp_text = processor.decode(logits.detach().cpu().numpy()).text
-            asd_score.append(compute_asd_score_single_utt(asd_model, asd_tokenizer, ref_text[i], hyp_text))
-        mass_prob_0 = get_mass_prob(sampled_logits[0].type(torch.LongTensor).to(device), log_probs, input_lengths[i])
-        mass_prob_1 = get_mass_prob(sampled_logits[1].type(torch.LongTensor).to(device), log_probs, input_lengths[i])
-        if asd_score[0] < asd_score[1]:
-            subtract_path_probs = mass_prob_1 - mass_prob_0
-        elif asd_score[1] < asd_score[0]:
-            subtract_path_probs = mass_prob_0 - mass_prob_0
-        else:
-            print("OH NO")
-            subtract_path_probs = mass_prob_0 - mass_prob_0
-            print(subtract_path_probs)
-        loss[i] = torch.sum(torch.clamp(subtract_path_probs, min=0))
+        # loss[i] = torch.sum(torch.clamp(subtract_path_probs, min=0))
+        loss[i] = torch.clamp(subtract_path_probs, min=0)
     return torch.mean(loss)
 
 
@@ -436,7 +446,6 @@ def sampled_multi_expected_ASD_ver2(ref_text, output_logits, input_lengths, asd_
         log_probs = F.log_softmax(output_logits[i], dim=-1, dtype=torch.float32)
         samples_loss = torch.zeros(num_samples, requires_grad=True, device=device).double()
         sample_probs = torch.zeros(num_samples, requires_grad=True, device=device).double()
-        mass_prob_list = []
         asd_scores = []
         for j in range(num_samples):
             sampled_logits = F.gumbel_softmax(output_logits[i], tau=10, hard=True, dim=-1)
@@ -458,366 +467,732 @@ def sampled_multi_expected_ASD_ver3(ref_text, output_logits, input_lengths, asd_
         samples_loss = torch.zeros(num_samples, requires_grad=True, device=device).double()
         for j in range(num_samples):
             sampled_logits = F.gumbel_softmax(output_logits[i], tau=10, hard=True, dim=-1)
-
             # new definition of the path:
-            path = torch.zeros(sampled_logits.shape)
-            index_list = torch.argmax(sampled_logits, dim=1)
-            for k, frame in enumerate(path):
-                frame[index_list[k]] = index_list[k]
-
-            hyp_text = processor.decode(sampled_logits.detach().cpu().numpy()).text
-            asd_score = compute_asd_score_single_utt(asd_model, asd_tokenizer, ref_text[i], hyp_text)
+            paths_tensor = get_paths(sampled_logits)
+            hyp_text = processor.decode(sampled_logits.detach().clone().cpu().numpy()).text
+            asd_score = torch.tensor(compute_asd_score_single_utt(asd_model, asd_tokenizer, ref_text[i], hyp_text),
+                                     device=device, requires_grad=True)
             # mass_prob = get_mass_prob(sampled_logits.type(torch.LongTensor).to(device), log_probs, input_lengths[i])
-            mass_prob = get_mass_prob(path.type(torch.LongTensor).to(device), log_probs, input_lengths[i])
-            samples_loss[j] = torch.mean(torch.exp(mass_prob / torch.sum(mass_prob)) * asd_score)
+            mass_prob = get_mass_prob(paths_tensor, log_probs, input_lengths[i])
+            samples_loss[j] = torch.exp(mass_prob) * (asd_score)
         loss[i] = torch.mean(samples_loss)
     return torch.mean(loss)
 
 
 
 
-
-
 # ===================================================
-# Minimum ASD Loss implementation adapted from k2 MWER Loss
+# CE-OptimizedLoss MWER
+# source: https://github.com/TeaPoly/CE-OptimizedLoss/blob/master/mwer.py
 
-def get_lattice(
-    nnet_output: torch.Tensor,
-    decoding_graph: k2.Fsa,
-    supervision_segments: torch.Tensor,
-    search_beam: float,
-    output_beam: float,
-    min_active_states: int,
-    max_active_states: int,
-    subsampling_factor: int = 1,
-) -> k2.Fsa:
-    """Get the decoding lattice from a decoding graph and neural
-    network output.
-    Args:
-      nnet_output:
-        It is the output of a neural model of shape `(N, T, C)`.
-      decoding_graph:
-        An Fsa, the decoding graph. It can be either an HLG
-        (see `compile_HLG.py`) or an H (see `k2.ctc_topo`).
-      supervision_segments:
-        A 2-D **CPU** tensor of dtype `torch.int32` with 3 columns.
-        Each row contains information for a supervision segment. Column 0
-        is the `sequence_index` indicating which sequence this segment
-        comes from; column 1 specifies the `start_frame` of this segment
-        within the sequence; column 2 contains the `duration` of this
-        segment.
-      search_beam:
-        Decoding beam, e.g. 20.  Smaller is faster, larger is more exact
-        (less pruning). This is the default value; it may be modified by
-        `min_active_states` and `max_active_states`.
-      output_beam:
-         Beam to prune output, similar to lattice-beam in Kaldi.  Relative
-         to best path of output.
-      min_active_states:
-        Minimum number of FSA states that are allowed to be active on any given
-        frame for any given intersection/composition task. This is advisory,
-        in that it will try not to have fewer than this number active.
-        Set it to zero if there is no constraint.
-      max_active_states:
-        Maximum number of FSA states that are allowed to be active on any given
-        frame for any given intersection/composition task. This is advisory,
-        in that it will try not to exceed that but may not always succeed.
-        You can use a very large number if no constraint is needed.
-      subsampling_factor:
-        The subsampling factor of the model.
-    Returns:
-      An FsaVec containing the decoding result. It has axes [utt][state][arc].
+def create_sampling_mask(log_softmax, n):
     """
-    dense_fsa_vec = k2.DenseFsaVec(
-        nnet_output,
-        supervision_segments,
-        allow_truncate=subsampling_factor - 1,
-    )
+    Generate sampling mask
 
-    lattice = k2.intersect_dense_pruned(
-        decoding_graph,
-        dense_fsa_vec,
-        search_beam=search_beam,
-        output_beam=output_beam,
-        min_active_states=min_active_states,
-        max_active_states=max_active_states,
-    )
-
-    return lattice
-
-
-def _get_texts(
-    best_paths: k2.Fsa, return_ragged: bool = False
-) -> Union[List[List[int]], k2.RaggedTensor]:
-    """Extract the texts (as word IDs) from the best-path FSAs.
-
-    Note:
-        Used by Nbest.build_levenshtein_graphs during MWER computation.
-        Copied from icefall.
+    # Ref: <Paraformer: Fast and Accurate Parallel Transformer for Non-autoregressive End-to-End Speech Recognition>
+    #       https://arxiv.org/abs/2206.08317
 
     Args:
-      best_paths:
-        A k2.Fsa with best_paths.arcs.num_axes() == 3, i.e.
-        containing multiple FSAs, which is expected to be the result
-        of k2.shortest_path (otherwise the returned values won't
-        be meaningful).
-      return_ragged:
-        True to return a ragged tensor with two axes [utt][word_id].
-        False to return a list-of-list word IDs.
-    Returns:
-      Returns a list of lists of int, containing the label sequences we
-      decoded.
+        log_softmax: log softmax inputs, float32 (batch, maxlen_out, vocab_size)
+        n: candidate paths num, int32
+    Return:
+        sampling_mask: the sampling mask (nbest, batch, maxlen_out, vocab_size)
     """
-    if isinstance(best_paths.aux_labels, k2.RaggedTensor):
-        # remove 0's and -1's.
-        aux_labels = best_paths.aux_labels.remove_values_leq(-1)
-        # TODO: change arcs.shape() to arcs.shape
-        aux_shape = best_paths.arcs.shape().compose(aux_labels.shape)
+    b, s, v = log_softmax.size()
 
-        # remove the states and arcs axes.
-        aux_shape = aux_shape.remove_axis(1)
-        aux_shape = aux_shape.remove_axis(1)
-        aux_labels = k2.RaggedTensor(aux_shape, aux_labels.values)
-    else:
-        # remove axis corresponding to states.
-        aux_shape = best_paths.arcs.shape().remove_axis(1)
-        aux_labels = k2.RaggedTensor(aux_shape, best_paths.aux_labels)
-        # remove 0's and -1's.
-        aux_labels = aux_labels.remove_values_leq(-1)
+    # Generate random mask
+    nbest_random_mask = torch.randint(
+        0, 2, (n, b, s, v), device=log_softmax.device)
 
-    assert aux_labels.num_axes == 2
-    if return_ragged:
-        return aux_labels
-    else:
-        return aux_labels.tolist()
+    # Greedy search decoding for best path
+    top1_score_indices = log_softmax.argmax(dim=-1).squeeze(-1)
+
+    # Genrate top 1 score token mask
+    top1_score_indices_mask = torch.zeros((b, s, v), dtype=torch.int).to(
+        log_softmax.device
+    )
+    top1_score_indices_mask.scatter_(-1, top1_score_indices.unsqueeze(-1), 1)
+
+    # Genrate sampling mask by applying random mask to top 1 score token
+    sampling_mask = nbest_random_mask * top1_score_indices_mask.unsqueeze(0)
+
+    return sampling_mask
 
 
-def masd_loss(lattice: k2.Fsa,
-              ref_texts: Union[k2.RaggedTensor, List[List[int]]],
-              nbest_scale: float,
-              num_paths: int) -> Union[torch.Tensor, k2.RaggedTensor]:
-        '''Compute the Minimum Word Error loss given
-        a lattice and corresponding ref_texts.
+def negative_sampling_decoder(
+    logit: torch.Tensor,
+    nbest: int = 4,
+    masks: Optional[torch.Tensor] = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Generate multiple candidate paths by negative sampling strategy
 
-        Args:
-          lattice:
-            An FsaVec with axes [utt][state][arc].
-          ref_texts:
-            It can be one of the following types:
-              - A list of list-of-integers, e..g, `[ [1, 2], [1, 2, 3] ]`
-              - An instance of :class:`k2.RaggedTensor`.
-                Must have `num_axes == 2` and with dtype `torch.int32`.
-          nbest_scale:
-            Scale `lattice.score` before passing it to :func:`k2.random_paths`.
-            A smaller value leads to more unique paths at the risk of being not
-            to sample the path with the best score.
-          num_paths:
-            Number of paths to **sample** from the lattice
-            using :func:`k2.random_paths`.
-        Returns:
-            Minimum Word Error Rate loss.
-        '''
+    # Ref: <Paraformer: Fast and Accurate Parallel Transformer for Non-autoregressive End-to-End Speech Recognition>
+    #       https://arxiv.org/abs/2206.08317
 
-        nbest = k2.Nbest.from_lattice(
-            lattice=lattice,
-            num_paths=num_paths,
-            use_double_scores=self.use_double_scores,
-            nbest_scale=nbest_scale,
-        )
-        device = lattice.scores.device
-        path_arc_shape = nbest.kept_path.shape.to(device)
-        stream_path_shape = nbest.shape.to(device)
+    Args:
+        logit: logit inputs, float32 (batch, maxlen_out, vocab_size)
+        nbest: candidate paths num, int32
+        masks: logit lengths, (batch, maxlen_out)
+    Return:
+        nbest_log_distribution: the N-BEST distribution of candidate path (nbest, batch)
+        nbest_pred: the NBEST candidate path (nbest, batch, maxlen_out)
+    """
 
-        hyps = nbest.build_levenshtein_graphs()
-        refs = k2.levenshtein_graph(ref_texts, device=hyps.device)
-        levenshtein_alignment = k2.levenshtein_alignment(
-            refs=refs,
-            hyps=hyps,
-            hyp_to_ref_map=nbest.shape.row_ids(1),
-            sorted_match_ref=True,
-        )
-        # tot_scores is a torch.Tensor with shape [tot_num_paths in this batch]
-        tot_scores = levenshtein_alignment.get_tot_scores(
-            use_double_scores=self.use_double_scores, log_semiring=False
-        )
-        # Each path has a corresponding wer.
-        wers = -tot_scores.to(device)
+    # Using log-softmax for probability distribution
+    log_softmax = torch.nn.functional.log_softmax(logit, dim=-1)
 
-        # Group each log_prob into [path][arc]
-        ragged_nbest_logp = k2.RaggedTensor(path_arc_shape, nbest.fsa.scores)
-        # Get the probability of each path, in log format,
-        # with shape [stream][path].
-        path_logp = ragged_nbest_logp.sum() / self.temperature
+    # Generate sampling mask
+    with torch.no_grad():
+        sampling_mask = create_sampling_mask(log_softmax, nbest)
 
-        ragged_path_logp = k2.RaggedTensor(stream_path_shape, path_logp)
-        prob_normalized = ragged_path_logp.normalize(use_log=True).values.exp()
+    # Randomly masking top1 score with -float('inf')
+    # (nbest, batch, maxlen_out, vocab_size)
+    nbest_log_softmax = torch.where(
+        sampling_mask != 0, MIN_LOG_VAL.type_as(log_softmax), log_softmax
+    )
 
-        prob_normalized = prob_normalized * wers
-        if self.reduction == 'sum':
-            loss = prob_normalized.sum()
-        elif self.reduction == 'mean':
-            loss = prob_normalized.mean()
-        else:
-            loss = k2.RaggedTensor(stream_path_shape, prob_normalized)
-        return loss
+    # Greedy search decoding for sampling log softmax
+    nbest_logsoftmax, nbest_pred = nbest_log_softmax.topk(1)
+    nbest_pred = nbest_pred.squeeze(-1)
+    nbest_logsoftmax = nbest_logsoftmax.squeeze(-1)
+
+    # Construct N-BEST log PDF
+    # FIXME (huanglk): Ignore irrelevant probabilities
+    # (n, b, s) -> (n, b): log(p1*p2*...pn) = log(p1)+log(p2)+...log(pn)
+    nbest_log_distribution = torch.sum(
+        nbest_logsoftmax.masked_fill(masks, 0), -1)
+
+    return nbest_log_distribution, nbest_pred
 
 
-class MWERLoss(torch.nn.Module):
-    '''Minimum Word Error Rate Loss compuration in k2.
+def batch_beam_search(
+    logit: torch.Tensor, beam_size: int, masks: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Beam Search Decoder
 
-    See equation 2 of https://arxiv.org/pdf/2106.02302.pdf about its definition.
-    '''
+    Parameters:
+
+        logit(Tensor): the logit of network.
+        beam_size(int): beam size of decoder.
+
+    Outputs:
+
+        indices(Tensor): a beam of index sequence.
+        log_prob(Tensor): a beam of log likelihood of sequence.
+
+    Shape:
+
+        post: (batch_size, seq_length, vocab_size).
+        indices: (batch_size, beam_size, seq_length).
+        log_prob: (batch_size, beam_size).
+
+    Examples:
+
+        >>> post = torch.softmax(torch.randn([32, 20, 1000]), -1)
+        >>> indices, log_prob = beam_search_decoder(post, 3)
+
+    """
+    batch_size, seq_length, vocab_size = logit.shape
+    eos = vocab_size - 1
+    # beam search
+    with torch.no_grad():
+        # b,t,v
+        log_post = torch.nn.functional.log_softmax(logit, dim=-1)
+        # b,k
+        log_prob, indices = log_post[:, 0, :].topk(beam_size, sorted=True)
+        end_flag = torch.eq(masks[:, 0], 1).view(-1, 1)
+        # mask predictor and scores if end
+        log_prob = mask_finished_scores(log_prob, end_flag)
+        indices = mask_finished_preds(indices, end_flag, eos)
+        # b,k,1
+        indices = indices.unsqueeze(-1)
+
+        for i in range(1, seq_length):
+            # b,v
+            scores = mask_finished_scores(log_post[:, i, :], end_flag)
+            # b,v -> b,k,v
+            topk_scores = scores.unsqueeze(1).repeat(1, beam_size, 1)
+            # b,k,1 + b,k,v -> b,k,v
+            top_k_logp = log_prob.unsqueeze(-1) + topk_scores
+
+            # b,k,v -> b,k*v -> b,k
+            log_prob, top_k_index = top_k_logp.view(batch_size, -1).topk(
+                beam_size, sorted=True
+            )
+
+            index = mask_finished_preds(top_k_index, end_flag, eos)
+
+            indices = torch.cat([indices, index.unsqueeze(-1)], dim=-1)
+
+            end_flag = torch.eq(masks[:, i], 1).view(-1, 1)
+
+        indices = torch.fmod(indices, vocab_size)
+    return indices, log_prob
+
+
+def beam_search_decoder(
+    logit: torch.Tensor, beam_size: int, masks: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Beam Search Decoder
+
+    Parameters:
+
+        logit(Tensor): the logit of network.
+        beam_size(int): beam size of decoder.
+
+    Outputs:
+
+        indices(Tensor): a beam of index sequence.
+        log_prob(Tensor): a beam of log likelihood of sequence.
+
+    Shape:
+
+        post: (batch_size, seq_length, vocab_size).
+        indices: (batch_size, beam_size, seq_length).
+        log_prob: (batch_size, beam_size).
+
+    Examples:
+
+        >>> post = torch.softmax(torch.randn([32, 20, 1000]), -1)
+        >>> indices, log_prob = beam_search_decoder(post, 3)
+
+    """
+    # beam search decoder
+    indices, _ = batch_beam_search(logit, beam_size, masks)
+    # recompute PDF for gradient
+    log_post = torch.nn.functional.log_softmax(logit, dim=-1)
+    # b,t,v -> b,n,t,v
+    nlog_post = log_post.unsqueeze(1).repeat(1, beam_size, 1, 1)
+    # indices: b, n, t -> b, n, t
+    top_k_log_post = torch.gather(
+        nlog_post, -1, indices.unsqueeze(-1)).squeeze(-1)
+    # b, n, t -> b, n
+    topk_log_prob = torch.sum(
+        top_k_log_post.masked_fill(masks.unsqueeze(1), 0), -1)
+    return topk_log_prob.transpose(0, 1), indices.transpose(0, 1)
+
+
+def beam_search_decoder_mod(logit: torch.Tensor, beam_size: int, masks: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Beam Search Decoder
+
+    Parameters:
+
+        logit(Tensor): the logit of network.
+        beam_size(int): beam size of decoder.
+
+    Outputs:
+
+        indices(Tensor): a beam of index sequence.
+        log_prob(Tensor): a beam of log likelihood of sequence.
+
+    Shape:
+
+        post: (batch_size, seq_length, vocab_size).
+        indices: (batch_size, beam_size, seq_length).
+        log_prob: (batch_size, beam_size).
+
+    Examples:
+
+        >>> post = torch.softmax(torch.randn([32, 20, 1000]), -1)
+        >>> indices, log_prob = beam_search_decoder(post, 3)
+
+    """
+    # beam search decoder
+    indices, _ = batch_beam_search(logit, beam_size, masks)
+    # recompute PDF for gradient
+    log_post = torch.nn.functional.log_softmax(logit, dim=-1)
+    # b,t,v -> b,n,t,v
+    nlog_post = log_post.unsqueeze(1).repeat(1, beam_size, 1, 1)
+    # indices: b, n, t -> b, n, t
+    top_k_log_post = torch.gather(nlog_post, -1, indices.unsqueeze(-1)).squeeze(-1)
+    # b, n, t -> b, n
+    topk_log_prob = torch.sum(top_k_log_post.masked_fill(masks.unsqueeze(1), 0), -1)
+    # MOD: extracting log probs for hyp decoding
+    nlog_no_softmax = logit.detach().clone().unsqueeze(1).repeat(1, beam_size, 1, 1)
+    top_k_no_softmax = torch.gather(nlog_no_softmax, -1, indices.unsqueeze(-1)).squeeze(-1)
+    top_k_no_softmax2 = top_k_no_softmax.masked_fill(masks.unsqueeze(1), 0)
+    # print("top_k_no_softmax2:", top_k_no_softmax2.size())
+    nlog_probs = torch.zeros_like(nlog_no_softmax)
+    batch_size = nlog_probs.size()[0]
+    num_frames = nlog_probs.size()[2]
+    num_samples = beam_size
+    for i in range(batch_size):
+        for j in range(num_samples):
+            for k in range(num_frames):
+                nlog_probs[i,j,k,indices[i,j,k]] = top_k_no_softmax2[i,j,k]
+    return topk_log_prob.transpose(0, 1), indices.transpose(0, 1), nlog_probs.transpose(0, 1)
+
+
+def compute_mwer_loss(
+    nbest_log_distribution=torch.Tensor,
+    nbest_pred=torch.Tensor,
+    tgt=torch.Tensor,
+    masks=torch.Tensor,
+):
+    """
+    Compute Minimum Word Error Rate Training loss.
+
+    # Ref: <Minimum Word Error Rate Training for Attention-based Sequence-to-Sequence Models>
+    #       https://arxiv.org/abs/1712.01818
+
+    Args:
+        nbest_log_distribution: the N-BEST distribution of candidate path (nbest, batch)
+        nbest_pred: the NBEST candidate path (nbest, batch, maxlen_out)
+        tgt: padded target token ids, int32 (batch, maxlen_out)
+        masks: target token lengths of this batch (batch,)
+    Return:
+        loss: normalized MWER loss (batch,)
+    """
+    n, b, s = nbest_pred.size()
+
+    # necessary to filter irrelevant length
+    # (b,) -> (b, s)
+    # not include <eos/sos>
+    tgt = tgt.masked_fill(masks, IGNORE_ID)
+    # (n, b, s)
+    nbest_pred = nbest_pred.masked_fill(masks, IGNORE_ID)
+
+    # Construct number of word errors
+    # (b, s) -> (n, b, s)
+    tgt = tgt.unsqueeze(0).repeat(n, 1, 1)
+
+    # convert to float for normalize
+    # (n, b, s) -> (n, b)
+    nbest_word_err_num = torch.sum((tgt != nbest_pred), -1).float()
+
+    # Computes log distribution
+    # (n, b) -> (b,): log( p1+p2+...+pn ) = log( exp(log_p1)+exp(log_p2)+...+exp(log_pn) )
+    sum_nbest_log_distribution = torch.logsumexp(nbest_log_distribution, 0)
+
+    # Re-normalized over just the N-best hypotheses.
+    # (n, b) - (b,) -> (n, b): exp(log_p)/exp(log_p_sum) = exp(log_p-log_p_sum)
+    normal_nbest_distribution = torch.exp(
+        nbest_log_distribution - sum_nbest_log_distribution
+    )
+
+    # Average number of word errors over the N-best hypohtheses
+    # (n, b) -> (b)
+    mean_word_err_num = torch.mean(nbest_word_err_num, 0)
+    # print("mean_word_err_num:", mean_word_err_num)
+
+    # Re-normalized error word number over just the N-best hypotheses
+    # (n, b) - (b,) -> (n, b)
+    normal_nbest_word_err_num = nbest_word_err_num - mean_word_err_num
+
+    # Expected number of word errors over the training set.
+    # (n, b) -> (b,)
+    mwer_loss = torch.sum(normal_nbest_distribution *
+                          normal_nbest_word_err_num, 0)
+
+    return mwer_loss
+
+
+def compute_masd_loss(nbest_log_distribution, asd_scores):
+    # Computes log distribution
+    # (n, b) -> (b,): log( p1+p2+...+pn ) = log( exp(log_p1)+exp(log_p2)+...+exp(log_pn) )
+    sum_nbest_log_distribution = torch.logsumexp(nbest_log_distribution, 0)
+
+    # Re-normalized over just the N-best hypotheses.
+    # (n, b) - (b,) -> (n, b): exp(log_p)/exp(log_p_sum) = exp(log_p-log_p_sum)
+    normal_nbest_distribution = torch.exp(nbest_log_distribution - sum_nbest_log_distribution)
+
+    # Average number of ASD score over the N-best hypohtheses
+    # (n, b) -> (b)
+    # print("asd_scores:", asd_scores.size(), asd_scores)
+    mean_asd = torch.mean(asd_scores, 0)
+    # print("mean_asd:", mean_asd.size(), mean_asd)
+
+    # Re-normalized ASD scores over just the N-best hypotheses
+    # (n, b) - (b,) -> (n, b)
+    normalized_asd = asd_scores - mean_asd
+    # print("normalized_asd:", normalized_asd.size(), normalized_asd)
+
+    # Expected number of word errors over the training set.
+    # (n, b) -> (b,)
+    asd_loss = torch.sum(normal_nbest_distribution * normalized_asd, 0)
+
+    return asd_loss
+
+
+class Seq2seqMwerLoss(torch.nn.Module):
+    """Minimum Word Error Rate Training loss based on the negative sampling strategy
+
+    <Paraformer: Fast and Accurate Parallel Transformer for Non-autoregressive End-to-End Speech Recognition>
+        https://arxiv.org/abs/2206.08317
+
+    <Minimum Word Error Rate Training for Attention-based Sequence-to-Sequence Models>
+        https://arxiv.org/abs/1712.01818
+
+    Args:
+        candidate_paths_num (int): The number of candidate paths.
+    """
 
     def __init__(
         self,
-        vocab_size: int,
-        subsampling_factor: int,
-        search_beam: int = 20,
-        output_beam: int = 8,
-        min_active_states: int = 30,
-        max_active_states: int = 10000,
-        temperature: float = 1.0,
-        num_paths: int = 100,
-        use_double_scores: bool = True,
-        nbest_scale: float = 0.5,
-        reduction: Literal['none', 'mean', 'sum'] = 'mean'
-    ) -> None:
-        """
-        Args:
-          search_beam:
-            Decoding beam, e.g. 20.  Smaller is faster, larger is more exact
-            (less pruning). This is the default value; it may be modified by
-            `min_active_states` and `max_active_states`.
-          output_beam:
-             Beam to prune output, similar to lattice-beam in Kaldi.  Relative
-             to best path of output.
-          min_active_states:
-            Minimum number of FSA states that are allowed to be active on any given
-            frame for any given intersection/composition task. This is advisory,
-            in that it will try not to have fewer than this number active.
-            Set it to zero if there is no constraint.
-          max_active_states:
-            Maximum number of FSA states that are allowed to be active on any given
-            frame for any given intersection/composition task. This is advisory,
-            in that it will try not to exceed that but may not always succeed.
-            You can use a very large number if no constraint is needed.
-          subsampling_factor:
-            The subsampling factor of the model.
-          temperature:
-            For long utterances, the dynamic range of scores will be too large
-            and the posteriors will be mostly 0 or 1.
-            To prevent this it might be a good idea to have an extra argument
-            that functions like a temperature.
-            We scale the logprobs by before doing the normalization.
-          use_double_scores:
-            True to use double precision floating point.
-            False to use single precision.
-          reduction:
-            Specifies the reduction to apply to the output:
-            'none' | 'sum' | 'mean'.
-            'none': no reduction will be applied.
-                    The returned 'loss' is a k2.RaggedTensor, with
-                    loss.tot_size(0) == batch_size.
-                    loss.tot_size(1) == total_num_paths_of_current_batch
-                    If you want the MWER loss for each utterance, just do:
-                    `loss_per_utt = loss.sum()`
-                    Then loss_per_utt.shape[0] should be batch_size.
-                    See more example usages in 'k2/python/tests/mwer_test.py'
-            'sum': sum loss of each path over the whole batch together.
-            'mean': divide above 'sum' by total num paths over the whole batch.
-          nbest_scale:
-            Scale `lattice.score` before passing it to :func:`k2.random_paths`.
-            A smaller value leads to more unique paths at the risk of being not
-            to sample the path with the best score.
-          num_paths:
-            Number of paths to **sample** from the lattice
-            using :func:`k2.random_paths`.
-        """
+        sampling_method="beam_search",  # beam_search or negative_sampling
+        candidate_paths_num: int = 4,
+        reduction: str = "mean",
+        eos_id: int = -1
+    ):
         super().__init__()
-
-        self.vocab_size = vocab_size
-        self.search_beam = search_beam
-        self.output_beam = output_beam
-        self.min_active_states = min_active_states
-        self.max_active_states = max_active_states
-
-        self.num_paths = num_paths
-        self.nbest_scale = nbest_scale
-        self.subsampling_factor = subsampling_factor
-
-        # self.mwer_loss = k2.MWERLoss(
-        #     temperature=temperature,
-        #     use_double_scores=use_double_scores,
-        #     reduction=reduction
-        # )
+        self.candidate_paths_num = candidate_paths_num
+        self.sampling_method = sampling_method
+        self.reduction = reduction
+        self.eos_id = eos_id
 
     def forward(
-        self,
-        emissions: torch.Tensor,
-        emissions_lengths: torch.Tensor,
-        labels: torch.Tensor,
-        labels_length: torch.Tensor
+        self, logit: torch.Tensor, tgt: torch.Tensor, tgt_lens: torch.Tensor
     ) -> torch.Tensor:
         """
         Args:
-            emissions (torch.FloatTensor): CPU tensor of shape `(batch, frame, num_tokens)` storing sequences of
-                probability distribution over labels; output of acoustic model.
-            labels (torch.FloatTensor): CPU tensor of shape `(batch, label_len)` storing labels.
-            emissions_lengths (Tensor or None, optional): CPU tensor of shape `(batch, )` storing the valid length of
-                in time axis of the output Tensor in each batch.
-            labels_length (Tensor or None, optional): CPU tensor of shape `(batch, )` storing the valid length of
-                label in each batch.
-
-        Returns:
-            torch.FloatTensor:
-                Minimum Word Error Rate loss.
+            logit: logit (batch, maxlen_out, vocab_size)
+            tgt: padded target token ids, int64 (batch, maxlen_out)
+            tgt_lens: target lengths of this batch (batch)
+        Return:
+            loss: normalized MWER loss
         """
+        assert tgt_lens.size()[0] == tgt.size()[0] == logit.size()[0]
+        assert logit.size()[1] == tgt.size()[1]
 
-        H = k2.ctc_topo(
-            max_token=self.vocab_size-1,
-            modified=False,
-            device=emissions.device,
+        # not include <eos/sos>
+        masks = make_pad_mask(
+            tgt_lens if self.eos_id < 0 else tgt_lens - 1, max_len=logit.size()[1]
+        )
+        if self.sampling_method == "beam_search":
+            # Beam search to generate multiple candidate paths
+            nbest_log_distribution, nbest_pred = beam_search_decoder(
+                logit, self.candidate_paths_num, masks
+            )
+        elif self.sampling_method == "negative_sampling":
+            # Randomly mask the top1 score to generate multiple candidate paths
+            nbest_log_distribution, nbest_pred = negative_sampling_decoder(
+                logit, self.candidate_paths_num, masks
+            )
+        else:
+            raise Exception(f"Not support sampling_method: {self.sampling_method} ")
+
+        # Compute MWER loss
+        mwer_loss = compute_mwer_loss(
+            nbest_log_distribution, nbest_pred, tgt, masks)
+
+        if self.reduction == "sum":
+            return torch.sum(mwer_loss)
+        elif self.reduction == "mean":
+            return torch.mean(mwer_loss)
+        else:
+            return mwer_loss
+
+
+class Seq2seqMASDLoss(torch.nn.Module):
+    """Minimum Word Error Rate Training loss based on the negative sampling strategy
+
+    <Paraformer: Fast and Accurate Parallel Transformer for Non-autoregressive End-to-End Speech Recognition>
+        https://arxiv.org/abs/2206.08317
+
+    <Minimum Word Error Rate Training for Attention-based Sequence-to-Sequence Models>
+        https://arxiv.org/abs/1712.01818
+
+    Args:
+        candidate_paths_num (int): The number of candidate paths.
+    """
+
+    def __init__(
+        self,
+        sampling_method="beam_search",  # beam_search or negative_sampling
+        candidate_paths_num: int = 4,
+        reduction: str = "mean",
+        eos_id: int = 33
+    ):
+        super().__init__()
+        self.candidate_paths_num = candidate_paths_num
+        self.sampling_method = sampling_method
+        self.reduction = reduction
+        self.eos_id = eos_id
+
+
+    def forward(
+        self, nbest_log_distribution: torch.Tensor, ref_list, hyp_list, metric_model, metric_tokenizer) -> torch.Tensor:
+        """
+        Args:
+            logit: logit (batch, maxlen_out, vocab_size)
+            tgt: padded target token ids, int64 (batch, maxlen_out)
+            tgt_lens: target lengths of this batch (batch)
+        Return:
+            loss: normalized MWER loss
+        """
+        from functools import partial
+
+        asd_scores = []
+        for hyp_group in hyp_list:
+            # path_scores = list(map(partial(compute_asd_score_single_utt, metric_model, metric_tokenizer),
+            #                        ref_list, hyp_group))
+            path_scores = []
+            for ref, hyp in zip(ref_list, hyp_group):
+                # print("hyp:", hyp)
+                path_scores.append(compute_asd_score_single_utt(metric_model, metric_tokenizer, ref, hyp))
+            asd_scores.append(path_scores)
+
+        asd_scores_tensor = torch.tensor(asd_scores, device=device, requires_grad=True)
+
+        masd_loss = compute_masd_loss(nbest_log_distribution, asd_scores_tensor)
+
+        if self.reduction == "sum":
+            return torch.sum(masd_loss)
+        elif self.reduction == "mean":
+            return torch.mean(masd_loss)
+        else:
+            return masd_loss
+
+
+    def get_logits_for_decoding(self, logit: torch.Tensor, tgt_lens: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            logit: logit (batch, maxlen_out, vocab_size)
+            tgt_lens: target lengths of this batch (batch)
+        Return:
+            nlog_probs: log probabilities for the paths (n_paths, batch, maxlen_out, vocab_size)
+        """
+        # not include <eos/sos>
+        masks = make_pad_mask(
+            tgt_lens if self.eos_id < 0 else tgt_lens - 1, max_len=logit.size()[1]
         )
 
-        supervision_segments = torch.stack(
-            (
-                torch.tensor(range(emissions_lengths.shape[0])),
-                torch.zeros(emissions_lengths.shape[0]),
-                emissions_lengths.cpu(),
-            ),
-            1,
-        ).to(torch.int32)
+        if self.sampling_method == "beam_search":
+            # Beam search to generate multiple candidate paths
+            nbest_log_distribution, nbest_pred, nlog_probs = beam_search_decoder_mod(
+                logit, self.candidate_paths_num, masks
+            )
 
-        print(supervision_segments)
+        elif self.sampling_method == "negative_sampling":
+            # Randomly mask the top1 score to generate multiple candidate paths
+            nbest_log_distribution, nbest_pred = negative_sampling_decoder(
+                logit, self.candidate_paths_num, masks
+            )
+        else:
+            raise Exception(f"Not support sampling_method: {self.sampling_method} ")
 
-        lattice = get_lattice(
-            nnet_output=emissions,
-            decoding_graph=H,
-            supervision_segments=supervision_segments,
-            search_beam=self.search_beam,
-            output_beam=self.output_beam,
-            min_active_states=self.min_active_states,
-            max_active_states=self.max_active_states,
-            subsampling_factor=self.subsampling_factor,
-        )
-
-        token_ids = []
-        for i in range(labels_length.size(0)):
-            temp = labels[i, : labels_length[i]].cpu().tolist()
-            token_ids.append(list(filter(lambda num: num != 0, temp)))
-
-        loss = masd_loss(lattice, token_ids,
-                              nbest_scale=self.nbest_scale,
-                              num_paths = self.num_paths)
-
-        # loss = self.mwer_loss(
-        #     lattice, token_ids,
-        #     nbest_scale=self.nbest_scale,
-        #     num_paths=self.num_paths
-        # )
-
-        return loss
+        return nbest_log_distribution, nlog_probs
 
 
 
 
+# ===================================================
+# k2 MWER Loss
+# source: https://github.com/TeaPoly/CTC-OptimizedLoss/tree/main
+
+# def get_lattice(
+#     nnet_output: torch.Tensor,
+#     decoding_graph: k2.Fsa,
+#     supervision_segments: torch.Tensor,
+#     search_beam: float,
+#     output_beam: float,
+#     min_active_states: int,
+#     max_active_states: int,
+#     subsampling_factor: int = 1,
+# ) -> k2.Fsa:
+#     """Get the decoding lattice from a decoding graph and neural
+#     network output.
+#     Args:
+#       nnet_output:
+#         It is the output of a neural model of shape `(N, T, C)`.
+#       decoding_graph:
+#         An Fsa, the decoding graph. It can be either an HLG
+#         (see `compile_HLG.py`) or an H (see `k2.ctc_topo`).
+#       supervision_segments:
+#         A 2-D **CPU** tensor of dtype `torch.int32` with 3 columns.
+#         Each row contains information for a supervision segment. Column 0
+#         is the `sequence_index` indicating which sequence this segment
+#         comes from; column 1 specifies the `start_frame` of this segment
+#         within the sequence; column 2 contains the `duration` of this
+#         segment.
+#       search_beam:
+#         Decoding beam, e.g. 20.  Smaller is faster, larger is more exact
+#         (less pruning). This is the default value; it may be modified by
+#         `min_active_states` and `max_active_states`.
+#       output_beam:
+#          Beam to prune output, similar to lattice-beam in Kaldi.  Relative
+#          to best path of output.
+#       min_active_states:
+#         Minimum number of FSA states that are allowed to be active on any given
+#         frame for any given intersection/composition task. This is advisory,
+#         in that it will try not to have fewer than this number active.
+#         Set it to zero if there is no constraint.
+#       max_active_states:
+#         Maximum number of FSA states that are allowed to be active on any given
+#         frame for any given intersection/composition task. This is advisory,
+#         in that it will try not to exceed that but may not always succeed.
+#         You can use a very large number if no constraint is needed.
+#       subsampling_factor:
+#         The subsampling factor of the model.
+#     Returns:
+#       An FsaVec containing the decoding result. It has axes [utt][state][arc].
+#     """
+#     dense_fsa_vec = k2.DenseFsaVec(
+#         nnet_output,
+#         supervision_segments,
+#         allow_truncate=subsampling_factor - 1,
+#     )
+
+#     lattice = k2.intersect_dense_pruned(
+#         decoding_graph,
+#         dense_fsa_vec,
+#         search_beam=search_beam,
+#         output_beam=output_beam,
+#         min_active_states=min_active_states,
+#         max_active_states=max_active_states,
+#     )
+
+#     return lattice
+
+
+# class MWERLoss(torch.nn.Module):
+#     '''Minimum Word Error Rate Loss compuration in k2.
+
+#     See equation 2 of https://arxiv.org/pdf/2106.02302.pdf about its definition.
+#     '''
+
+#     def __init__(
+#         self,
+#         vocab_size: int,
+#         subsampling_factor: int,
+#         search_beam: int = 20,
+#         output_beam: int = 8,
+#         min_active_states: int = 30,
+#         max_active_states: int = 10000,
+#         temperature: float = 1.0,
+#         num_paths: int = 100,
+#         use_double_scores: bool = True,
+#         nbest_scale: float = 0.5,
+#         reduction: Literal['none', 'mean', 'sum'] = 'mean'
+#     ) -> None:
+#         """
+#         Args:
+#           search_beam:
+#             Decoding beam, e.g. 20.  Smaller is faster, larger is more exact
+#             (less pruning). This is the default value; it may be modified by
+#             `min_active_states` and `max_active_states`.
+#           output_beam:
+#              Beam to prune output, similar to lattice-beam in Kaldi.  Relative
+#              to best path of output.
+#           min_active_states:
+#             Minimum number of FSA states that are allowed to be active on any given
+#             frame for any given intersection/composition task. This is advisory,
+#             in that it will try not to have fewer than this number active.
+#             Set it to zero if there is no constraint.
+#           max_active_states:
+#             Maximum number of FSA states that are allowed to be active on any given
+#             frame for any given intersection/composition task. This is advisory,
+#             in that it will try not to exceed that but may not always succeed.
+#             You can use a very large number if no constraint is needed.
+#           subsampling_factor:
+#             The subsampling factor of the model.
+#           temperature:
+#             For long utterances, the dynamic range of scores will be too large
+#             and the posteriors will be mostly 0 or 1.
+#             To prevent this it might be a good idea to have an extra argument
+#             that functions like a temperature.
+#             We scale the logprobs by before doing the normalization.
+#           use_double_scores:
+#             True to use double precision floating point.
+#             False to use single precision.
+#           reduction:
+#             Specifies the reduction to apply to the output:
+#             'none' | 'sum' | 'mean'.
+#             'none': no reduction will be applied.
+#                     The returned 'loss' is a k2.RaggedTensor, with
+#                     loss.tot_size(0) == batch_size.
+#                     loss.tot_size(1) == total_num_paths_of_current_batch
+#                     If you want the MWER loss for each utterance, just do:
+#                     `loss_per_utt = loss.sum()`
+#                     Then loss_per_utt.shape[0] should be batch_size.
+#                     See more example usages in 'k2/python/tests/mwer_test.py'
+#             'sum': sum loss of each path over the whole batch together.
+#             'mean': divide above 'sum' by total num paths over the whole batch.
+#           nbest_scale:
+#             Scale `lattice.score` before passing it to :func:`k2.random_paths`.
+#             A smaller value leads to more unique paths at the risk of being not
+#             to sample the path with the best score.
+#           num_paths:
+#             Number of paths to **sample** from the lattice
+#             using :func:`k2.random_paths`.
+#         """
+#         super().__init__()
+
+#         self.vocab_size = vocab_size
+#         self.search_beam = search_beam
+#         self.output_beam = output_beam
+#         self.min_active_states = min_active_states
+#         self.max_active_states = max_active_states
+
+#         self.num_paths = num_paths
+#         self.nbest_scale = nbest_scale
+#         self.subsampling_factor = subsampling_factor
+
+#         self.mwer_loss = k2.MWERLoss(
+#             temperature=temperature,
+#             use_double_scores=use_double_scores,
+#             reduction=reduction
+#         )
+
+#     def forward(
+#         self,
+#         emissions: torch.Tensor,
+#         emissions_lengths: torch.Tensor,
+#         labels: torch.Tensor,
+#         labels_length: torch.Tensor
+#     ) -> torch.Tensor:
+#         """
+#         Args:
+#             emissions (torch.FloatTensor): CPU tensor of shape `(batch, frame, num_tokens)` storing sequences of
+#                 probability distribution over labels; output of acoustic model.
+#             labels (torch.FloatTensor): CPU tensor of shape `(batch, label_len)` storing labels.
+#             emissions_lengths (Tensor or None, optional): CPU tensor of shape `(batch, )` storing the valid length of
+#                 in time axis of the output Tensor in each batch.
+#             labels_length (Tensor or None, optional): CPU tensor of shape `(batch, )` storing the valid length of
+#                 label in each batch.
+
+#         Returns:
+#             torch.FloatTensor:
+#                 Minimum Word Error Rate loss.
+#         """
+
+#         H = k2.ctc_topo(
+#             max_token=self.vocab_size-1,
+#             modified=False,
+#             device=emissions.device,
+#         )
+
+#         supervision_segments = torch.stack(
+#             (
+#                 torch.tensor(range(emissions_lengths.shape[0])),
+#                 torch.zeros(emissions_lengths.shape[0]),
+#                 emissions_lengths.cpu(),
+#             ),
+#             1,
+#         ).to(torch.int32)
+
+#         lattice = get_lattice(
+#             nnet_output=emissions,
+#             decoding_graph=H,
+#             supervision_segments=supervision_segments,
+#             search_beam=self.search_beam,
+#             output_beam=self.output_beam,
+#             min_active_states=self.min_active_states,
+#             max_active_states=self.max_active_states,
+#             subsampling_factor=self.subsampling_factor,
+#         )
+
+#         token_ids = []
+#         for i in range(labels_length.size(0)):
+#             temp = labels[i, : labels_length[i]].cpu().tolist()
+#             token_ids.append(list(filter(lambda num: num != 0, temp)))
+
+#         loss = self.mwer_loss(
+#             lattice, token_ids,
+#             nbest_scale=self.nbest_scale,
+#             num_paths=self.num_paths
+#         )
+#         print("mwer loss:", loss)
+
+#         return loss
