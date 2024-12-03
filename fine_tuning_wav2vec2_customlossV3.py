@@ -141,6 +141,7 @@ parser.add_argument("--export_model_dir",       type=str)
 parser.add_argument("--num_train_epochs",       type=int)
 parser.add_argument("--learning_rate",          type=float)
 parser.add_argument("--lambda_asd",             type=float)
+# parser.add_argument("--lambda_ctc",             type=float)
 parser.add_argument("--use_asd_metric",         type=int)
 parser.add_argument("--wandb_name",             type=str)
 parser.add_argument("--export_log",             type=str)
@@ -175,7 +176,7 @@ model = model.to(device)
 # feature extraction does not need further fine-tuning
 model.freeze_feature_encoder()
 
-
+# wandb.watch(model, log_freq=50)
 
 
 # ---------------------------------------------------
@@ -188,11 +189,11 @@ print("Loading dataset direct from data dir to pandas dataframe")
 #                  "../../datasets/NordTrans_TUL/train/NRK/",
 #                  "../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25per_30secmax/"]
 
-# data_dir_list = ["../../datasets/NordTrans_TUL/train_small/Stortinget/",
-#                  "../../datasets/NordTrans_TUL/train_small/NRK/",
-#                  "../../datasets/NordTrans_TUL/train_small/Rundkast/"]
+data_dir_list = ["../../datasets/NordTrans_TUL/train_small/Stortinget/",
+                 "../../datasets/NordTrans_TUL/train_small/NRK/",
+                 "../../datasets/NordTrans_TUL/train_small/Rundkast/"]
 
-data_dir_list = ["../../datasets/NordTrans_TUL/train_small/Rundkast/"]
+# data_dir_list = ["../../datasets/NordTrans_TUL/train_small/Rundkast/"]
 
 csv_export_dir = "../../model_ckpts/" + args.fine_tuned_model_ver + "/runs/"
 
@@ -287,12 +288,13 @@ training_args = TrainingArguments(
   num_train_epochs=args.num_train_epochs,  # orig: 30
   fp16=True,  # orig: True
   gradient_checkpointing=True,
-  save_steps=300,  # for one dataset exp
-  eval_steps=300,  # for one dataset exp
-  logging_steps=300,  # for one dataset exp
-#   save_steps=500,  # orig: 500
-#   eval_steps=500,  # orig: 500
-#   logging_steps=500,  # orig: 500
+#   save_steps=300,  # for one dataset exp
+#   eval_steps=300,  # for one dataset exp
+#   logging_steps=300,  # for one dataset exp
+  save_steps=500,  # orig: 500
+  eval_steps=500,  # orig: 500
+  logging_steps=500,  # orig: 500
+  logging_strategy="steps",
   learning_rate=args.learning_rate,  # orig: 1e-4
   weight_decay=0.005,
   warmup_steps=2000,  # orig: 1000
@@ -391,20 +393,20 @@ if args.use_asd_metric == 1:
             masd_loss = Seq2seqMASDLoss(sampling_method, candidate_paths_num, reduction)
             nbest_log_distribution, nlog_probs = masd_loss.get_logits_for_decoding(logits, input_lengths)
 
-            # getting the hypothesis
+            # getting the hypotheses
             hyp_list = []
             for i in range(nlog_probs.size()[0]):
-                hyp_logits = nlog_probs[i].to(torch.float32)
-                pred_logits = self._gather_and_numpify(hyp_logits, "eval_preds")
+                pred_logits = self._gather_and_numpify(nlog_probs[i].to(torch.float32).detach(), "eval_preds")
                 hyp_list.append(processor.batch_decode(pred_logits).text)
-                # print("SAMPLE", i, ":", processor.batch_decode(pred_logits).text, "\n")
 
-            loss = masd_loss(nbest_log_distribution, label_str, hyp_list, metric_model, metric_tokenizer)
+            asd_loss = masd_loss(nbest_log_distribution, label_str, hyp_list, metric_model, metric_tokenizer)
+            print("masd_loss:", asd_loss)
 
-            total_loss = (outputs["loss"] * args.lambda_asd) + ((1 - args.lambda_asd) * loss)
-            # total_loss = (outputs["loss"] * args.lambda_asd) + loss  # experiment group iv
+            # total_loss = (outputs["loss"] * args.lambda_asd) + ((1 - args.lambda_asd) * asd_loss)
+            total_loss = (outputs["loss"] * args.lambda_asd) + asd_loss
 
-            # print("total_loss:", total_loss)
+            # print("asd_loss:", asd_loss)
+            print("total_loss:", total_loss)
             # sys.exit()
 
             return (total_loss, outputs) if return_outputs else total_loss

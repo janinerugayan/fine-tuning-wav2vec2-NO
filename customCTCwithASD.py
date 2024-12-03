@@ -9,6 +9,7 @@ from scipy.spatial import distance
 import ctc_optimized  # cython built ctc loss & grad calc
 import ctc  # python-implemented ctc loss & grad calc
 import asd_for_ctc  # to extract ASD metric aligned to label seq for CTC loss calc
+from jiwer import wer
 
 from torchaudio.models.decoder import ctc_decoder
 
@@ -29,9 +30,9 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 
-def compute_asd_score_single_utt(model, tokenizer, reference, hypothesis):
-    ref_text = reference.replace("[UNK]", "")
-    hyp_text = hypothesis.replace("[UNK]", "")
+def compute_asd_score_single_utt(model, tokenizer, reference, hypothesis, normalized=True):
+    ref_text = re.sub(r"\s+", " ", reference.replace("[UNK]", ""))
+    hyp_text = re.sub(r"\s+", " ", hypothesis.replace("[UNK]", "").replace("</s>", ""))
     tokenized_ref = tokenizer(ref_text, padding=True, truncation=True, max_length=512, return_tensors="pt")
     tokenized_hyp = tokenizer(hyp_text, padding=True, truncation=True, max_length=512, return_tensors="pt")
     with torch.no_grad():
@@ -49,31 +50,13 @@ def compute_asd_score_single_utt(model, tokenizer, reference, hypothesis):
     output_mean_hypothesis = torch.stack(all_layers_hypothesis).mean(dim=0)
     alignment = dtw(output_mean_hypothesis, output_mean_reference, dist_method=distance.cosine, keep_internals=True)
     num_tokens = len(output_mean_reference)
-    asd_score = alignment.distance / num_tokens
-    return asd_score
-
-
-def compute_asd_score_single_utt_no_norm(model, tokenizer, reference, hypothesis):
-    ref_text = reference.replace("[UNK]", "")
-    hyp_text = hypothesis.replace("[UNK]", "")
-    tokenized_ref = tokenizer(ref_text, padding=True, truncation=True, max_length=512, return_tensors="pt")
-    tokenized_hyp = tokenizer(hyp_text, padding=True, truncation=True, max_length=512, return_tensors="pt")
-    with torch.no_grad():
-        model_output_ref = model(**tokenized_ref, output_hidden_states=True)
-        model_output_hyp = model(**tokenized_hyp, output_hidden_states=True)
-    hidden_states_ref = model_output_ref.hidden_states
-    hidden_states_hyp = model_output_hyp.hidden_states
-    all_layers_reference = [hidden_states_ref[1].squeeze(), hidden_states_ref[2].squeeze(), hidden_states_ref[3].squeeze(), hidden_states_ref[4].squeeze(),
-                            hidden_states_ref[5].squeeze(), hidden_states_ref[6].squeeze(), hidden_states_ref[7].squeeze(), hidden_states_ref[8].squeeze(),
-                            hidden_states_ref[9].squeeze(), hidden_states_ref[10].squeeze(), hidden_states_ref[11].squeeze(), hidden_states_ref[12].squeeze()]
-    all_layers_hypothesis = [hidden_states_hyp[1].squeeze(), hidden_states_hyp[2].squeeze(), hidden_states_hyp[3].squeeze(), hidden_states_hyp[4].squeeze(),
-                                hidden_states_hyp[5].squeeze(), hidden_states_hyp[6].squeeze(), hidden_states_hyp[7].squeeze(), hidden_states_hyp[8].squeeze(),
-                                hidden_states_hyp[9].squeeze(), hidden_states_hyp[10].squeeze(), hidden_states_hyp[11].squeeze(), hidden_states_hyp[12].squeeze()]
-    output_mean_reference = torch.stack(all_layers_reference).mean(dim=0)
-    output_mean_hypothesis = torch.stack(all_layers_hypothesis).mean(dim=0)
-    alignment = dtw(output_mean_hypothesis, output_mean_reference, dist_method=distance.cosine, keep_internals=True)
-    num_tokens = len(output_mean_reference)
-    asd_score = alignment.distance
+    if normalized == True:
+        asd_score = alignment.distance / num_tokens
+    else:
+        asd_score = alignment.distance
+    # print("ref_text:", ref_text)
+    # print("hyp_text:", hyp_text)
+    # print("asd_score:", asd_score)
     return asd_score
 
 
@@ -673,31 +656,7 @@ def beam_search_decoder(
     return topk_log_prob.transpose(0, 1), indices.transpose(0, 1)
 
 
-def beam_search_decoder_mod(logit: torch.Tensor, beam_size: int, masks: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Beam Search Decoder
-
-    Parameters:
-
-        logit(Tensor): the logit of network.
-        beam_size(int): beam size of decoder.
-
-    Outputs:
-
-        indices(Tensor): a beam of index sequence.
-        log_prob(Tensor): a beam of log likelihood of sequence.
-
-    Shape:
-
-        post: (batch_size, seq_length, vocab_size).
-        indices: (batch_size, beam_size, seq_length).
-        log_prob: (batch_size, beam_size).
-
-    Examples:
-
-        >>> post = torch.softmax(torch.randn([32, 20, 1000]), -1)
-        >>> indices, log_prob = beam_search_decoder(post, 3)
-
-    """
+def beam_search_decoder_mod(logit: torch.Tensor, beam_size: int, masks: torch.Tensor):
     # beam search decoder
     indices, _ = batch_beam_search(logit, beam_size, masks)
     # recompute PDF for gradient
@@ -709,18 +668,18 @@ def beam_search_decoder_mod(logit: torch.Tensor, beam_size: int, masks: torch.Te
     # b, n, t -> b, n
     topk_log_prob = torch.sum(top_k_log_post.masked_fill(masks.unsqueeze(1), 0), -1)
     # MOD: extracting log probs for hyp decoding
-    nlog_no_softmax = logit.detach().clone().unsqueeze(1).repeat(1, beam_size, 1, 1)
-    top_k_no_softmax = torch.gather(nlog_no_softmax, -1, indices.unsqueeze(-1)).squeeze(-1)
-    top_k_no_softmax2 = top_k_no_softmax.masked_fill(masks.unsqueeze(1), 0)
-    # print("top_k_no_softmax2:", top_k_no_softmax2.size())
-    nlog_probs = torch.zeros_like(nlog_no_softmax)
+    # nlog_no_softmax = logit.detach().clone().unsqueeze(1).repeat(1, beam_size, 1, 1)
+    # top_k_no_softmax = torch.gather(nlog_no_softmax, -1, indices.unsqueeze(-1)).squeeze(-1)
+    # top_k_no_softmax2 = top_k_no_softmax.masked_fill(masks.unsqueeze(1), 0)
+    nlog_probs = torch.zeros_like(nlog_post)
     batch_size = nlog_probs.size()[0]
     num_frames = nlog_probs.size()[2]
     num_samples = beam_size
     for i in range(batch_size):
         for j in range(num_samples):
             for k in range(num_frames):
-                nlog_probs[i,j,k,indices[i,j,k]] = top_k_no_softmax2[i,j,k]
+                # nlog_probs[i,j,k,indices[i,j,k]] = top_k_no_softmax2[i,j,k]
+                nlog_probs[i,j,k,indices[i,j,k]] = 1.0
     return topk_log_prob.transpose(0, 1), indices.transpose(0, 1), nlog_probs.transpose(0, 1)
 
 
@@ -799,18 +758,34 @@ def compute_masd_loss(nbest_log_distribution, asd_scores):
 
     # Average number of ASD score over the N-best hypohtheses
     # (n, b) -> (b)
-    # print("asd_scores:", asd_scores.size(), asd_scores)
     mean_asd = torch.mean(asd_scores, 0)
-    # print("mean_asd:", mean_asd.size(), mean_asd)
 
     # Re-normalized ASD scores over just the N-best hypotheses
     # (n, b) - (b,) -> (n, b)
     normalized_asd = asd_scores - mean_asd
-    # print("normalized_asd:", normalized_asd.size(), normalized_asd)
 
     # Expected number of word errors over the training set.
     # (n, b) -> (b,)
     asd_loss = torch.sum(normal_nbest_distribution * normalized_asd, 0)
+
+    return asd_loss
+
+
+def compute_masd_loss_ver2(nbest_log_distribution, asd_scores, normalized_score=True):
+    # Computes log distribution
+    # (n, b) -> (b,): log( p1+p2+...+pn ) = log( exp(log_p1)+exp(log_p2)+...+exp(log_pn) )
+    sum_nbest_log_distribution = torch.logsumexp(nbest_log_distribution, 0)
+
+    # Re-normalized over just the N-best hypotheses.
+    # (n, b) - (b,) -> (n, b): exp(log_p)/exp(log_p_sum) = exp(log_p-log_p_sum)
+    normal_nbest_distribution = torch.exp(nbest_log_distribution - sum_nbest_log_distribution)
+
+    if normalized_score == True:
+        mean_asd = torch.mean(asd_scores, 0)
+        asd_norm = asd_scores - mean_asd
+        asd_loss = torch.sum(normal_nbest_distribution * asd_norm, 0)
+    else:
+        asd_loss = torch.sum(normal_nbest_distribution * asd_scores, 0)
 
     return asd_loss
 
@@ -900,7 +875,7 @@ class Seq2seqMASDLoss(torch.nn.Module):
     def __init__(
         self,
         sampling_method="beam_search",  # beam_search or negative_sampling
-        candidate_paths_num: int = 4,
+        candidate_paths_num: int = 2,
         reduction: str = "mean",
         eos_id: int = 33
     ):
@@ -929,13 +904,14 @@ class Seq2seqMASDLoss(torch.nn.Module):
             #                        ref_list, hyp_group))
             path_scores = []
             for ref, hyp in zip(ref_list, hyp_group):
-                # print("hyp:", hyp)
-                path_scores.append(compute_asd_score_single_utt(metric_model, metric_tokenizer, ref, hyp))
+                path_scores.append(compute_asd_score_single_utt(metric_model, metric_tokenizer, ref, hyp, normalized=True))
+                # path_scores.append(wer(ref, hyp))
             asd_scores.append(path_scores)
 
         asd_scores_tensor = torch.tensor(asd_scores, device=device, requires_grad=True)
 
-        masd_loss = compute_masd_loss(nbest_log_distribution, asd_scores_tensor)
+        # masd_loss = compute_masd_loss(nbest_log_distribution, asd_scores_tensor)
+        masd_loss = compute_masd_loss_ver2(nbest_log_distribution, asd_scores_tensor, normalized_score=False)
 
         if self.reduction == "sum":
             return torch.sum(masd_loss)
