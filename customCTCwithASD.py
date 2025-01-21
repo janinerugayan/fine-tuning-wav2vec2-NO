@@ -780,6 +780,8 @@ def compute_masd_loss_ver2(nbest_log_distribution, asd_scores, normalized_score=
     # (n, b) - (b,) -> (n, b): exp(log_p)/exp(log_p_sum) = exp(log_p-log_p_sum)
     normal_nbest_distribution = torch.exp(nbest_log_distribution - sum_nbest_log_distribution)
 
+    # print("normal nbest dist:", normal_nbest_distribution)
+
     if normalized_score == True:
         mean_asd = torch.mean(asd_scores, 0)
         asd_norm = asd_scores - mean_asd
@@ -787,7 +789,26 @@ def compute_masd_loss_ver2(nbest_log_distribution, asd_scores, normalized_score=
     else:
         asd_loss = torch.sum(normal_nbest_distribution * asd_scores, 0)
 
+    # print("asd score:", asd_scores)
+    # print("asd x dist:", normal_nbest_distribution * asd_scores)
+    # print("asd loss:", asd_loss)
+
     return asd_loss
+
+
+# concept based on the align with purpose, but without shifting the path, just making the hinge loss smaller
+# ranking of paths based on asd score
+def compute_masd_loss_ver3(nbest_log_distribution, asd_scores, candidate_paths_num):
+    mean_asd_scores = torch.mean(asd_scores, 1)
+    min_idx = torch.argmin(mean_asd_scores)
+    new_mean_asd_scores = torch.cat([mean_asd_scores[0:min_idx], mean_asd_scores[min_idx+1:]])
+    new_nbest_log_distribution = torch.cat([nbest_log_distribution[0:min_idx,:],nbest_log_distribution[min_idx+1:,:]])
+    new_min_idx = torch.argmin(new_mean_asd_scores)
+    min_asd_log_dist = new_nbest_log_distribution[new_min_idx].repeat(candidate_paths_num - 1, 1)
+    subtract_pairs = new_nbest_log_distribution - min_asd_log_dist
+    loss = torch.clamp(subtract_pairs, min=0)
+    print("loss:", loss)
+    return loss
 
 
 class Seq2seqMwerLoss(torch.nn.Module):
@@ -908,10 +929,11 @@ class Seq2seqMASDLoss(torch.nn.Module):
                 # path_scores.append(wer(ref, hyp))
             asd_scores.append(path_scores)
 
-        asd_scores_tensor = torch.tensor(asd_scores, device=device, requires_grad=True)
+        asd_scores_tensor = torch.tensor(asd_scores, device=device)
 
         # masd_loss = compute_masd_loss(nbest_log_distribution, asd_scores_tensor)
-        masd_loss = compute_masd_loss_ver2(nbest_log_distribution, asd_scores_tensor, normalized_score=False)
+        # masd_loss = compute_masd_loss_ver2(nbest_log_distribution, asd_scores_tensor, normalized_score=False)
+        masd_loss = compute_masd_loss_ver3(nbest_log_distribution, asd_scores_tensor, self.candidate_paths_num)
 
         if self.reduction == "sum":
             return torch.sum(masd_loss)

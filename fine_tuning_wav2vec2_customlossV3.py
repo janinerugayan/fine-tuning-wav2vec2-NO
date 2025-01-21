@@ -28,6 +28,7 @@ import argparse
 # import types
 from customCTCwithASD import *
 import sys
+import time
 
 
 # https://huggingface.co/transformers/main_classes/logging.html
@@ -383,11 +384,15 @@ if args.use_asd_metric == 1:
             # total_loss = nbest_loss
             # print("total loss:", total_loss)
             # sys.exit()
+            # nbest_loss = compute_CTCloss_nbest(label_str, outputs["logits"], input_lengths, metric_model, metric_tokenizer)
+            # print("nbest_loss:", nbest_loss)
+            # total_loss = nbest_loss
 
             """
             MASD Loss
             """
-            candidate_paths_num = 3
+            # candidate_paths_num = 3
+            candidate_paths_num = 3  # for trying the new method
             sampling_method = "beam_search"
             reduction = "mean"
             masd_loss = Seq2seqMASDLoss(sampling_method, candidate_paths_num, reduction)
@@ -403,9 +408,9 @@ if args.use_asd_metric == 1:
             print("masd_loss:", asd_loss)
 
             # total_loss = (outputs["loss"] * args.lambda_asd) + ((1 - args.lambda_asd) * asd_loss)
-            total_loss = (outputs["loss"] * args.lambda_asd) + asd_loss
+            # total_loss = (outputs["loss"] * args.lambda_asd) + asd_loss
+            total_loss = outputs["loss"] + (asd_loss * args.lambda_asd)
 
-            # print("asd_loss:", asd_loss)
             print("total_loss:", total_loss)
             # sys.exit()
 
