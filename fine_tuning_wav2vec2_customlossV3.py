@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"  # or "0,1" for multiple GPUs
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # or "0,1" for multiple GPUs
 
 import collections
 if not hasattr(collections, "Container"):
@@ -310,6 +310,12 @@ training_args = TrainingArguments(
 metric_modelname = 'ltg/norbert2'  # changed to latest version of NorBERT (20-Mar-2023)
 metric_model = BertModel.from_pretrained(metric_modelname)
 metric_tokenizer = AutoTokenizer.from_pretrained(metric_modelname)
+
+# multi-lingual LM
+# metric_modelname = "bert-base-multilingual-cased"
+# metric_model_multi = BertModel.from_pretrained(metric_modelname)
+# metric_tokenizer_multi = AutoTokenizer.from_pretrained(metric_modelname)
+
 asd_metric = load_metric("asd_metric.py")
 wer_metric = load_metric("wer")
 
@@ -321,13 +327,14 @@ def compute_metrics(pred):
     wer = wer_metric.compute(predictions=pred_str.text, references=label_str) # worked in fine-tuning versions 1 to 14 (wer metric)
     # ADD ASD HERE!
     asd = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=label_str, hypothesis=pred_str.text)
+    # asd_multi = asd_metric.compute(model=metric_model_multi, tokenizer=metric_tokenizer_multi, reference=label_str, hypothesis=pred_str.text)
 
     return {"wer": wer, "asd": asd}
 
 print("Available cuda devices:", torch.cuda.device_count())
 
 if args.use_asd_metric == 1:
-    print("Setting up Custom Trainer")
+    print("Setting up CUSTOM Trainer")
 
     class CustomTrainer(Trainer):
         def __init__(self, *args, **kwargs):
@@ -342,12 +349,9 @@ if args.use_asd_metric == 1:
 
             outputs = model(**inputs)
             logits = outputs["logits"]
-            # log_probs = F.log_softmax(outputs["logits"], dim=-1, dtype=torch.float32)
 
             attention_mask = inputs["attention_mask"]
-            # print("attention mask shape:", attention_mask.shape)
             input_lengths = model._get_feat_extract_output_lengths(attention_mask.sum(-1)).to(torch.long)
-            # print("input_lengths:", input_lengths)
 
             # output_logits = outputs["logits"].to(torch.float32)
             # pred_logits = self._gather_and_numpify(output_logits.detach(), "eval_preds")
@@ -391,27 +395,31 @@ if args.use_asd_metric == 1:
             """
             MASD Loss
             """
-            # candidate_paths_num = 3
-            candidate_paths_num = 3  # for trying the new method
+            candidate_paths_num = 3
+            # candidate_paths_num = 10
             sampling_method = "beam_search"
             reduction = "mean"
             masd_loss = Seq2seqMASDLoss(sampling_method, candidate_paths_num, reduction)
-            nbest_log_distribution, nlog_probs = masd_loss.get_logits_for_decoding(logits, input_lengths)
+            # nbest_log_distribution, nlog_probs, nbest_pred = masd_loss.get_logits_for_decoding(logits, input_lengths)
+            nbest_log_distribution, nbest_pred = masd_loss.get_logits_for_decoding(logits, input_lengths)
 
             # getting the hypotheses
             hyp_list = []
-            for i in range(nlog_probs.size()[0]):
-                pred_logits = self._gather_and_numpify(nlog_probs[i].to(torch.float32).detach(), "eval_preds")
-                hyp_list.append(processor.batch_decode(pred_logits).text)
+            # for i in range(nlog_probs.size()[0]):
+                # pred_logits = self._gather_and_numpify(nlog_probs[i].to(torch.float32).detach(), "eval_preds")
+                # hyp_list.append(processor.batch_decode(pred_logits).text)
+            for i in range(nbest_pred.size()[0]):
+                hyp_text = processor_woLM.batch_decode(nbest_pred[i])
+                hyp_list.append(hyp_text)
 
             asd_loss = masd_loss(nbest_log_distribution, label_str, hyp_list, metric_model, metric_tokenizer)
-            print("masd_loss:", asd_loss)
+            # asd_loss = masd_loss(nbest_log_distribution, label_str, hyp_list, metric_model_multi, metric_tokenizer_multi)
+            # print("masd_loss:", asd_loss)
 
-            # total_loss = (outputs["loss"] * args.lambda_asd) + ((1 - args.lambda_asd) * asd_loss)
+            total_loss = (outputs["loss"] * args.lambda_asd) + ((1 - args.lambda_asd) * asd_loss)
             # total_loss = (outputs["loss"] * args.lambda_asd) + asd_loss
-            total_loss = outputs["loss"] + (asd_loss * args.lambda_asd)
-
-            print("total_loss:", total_loss)
+            # total_loss = outputs["loss"] + (asd_loss * args.lambda_asd)
+            # print("total_loss:", total_loss)
             # sys.exit()
 
             return (total_loss, outputs) if return_outputs else total_loss

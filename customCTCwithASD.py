@@ -11,7 +11,7 @@ import ctc  # python-implemented ctc loss & grad calc
 import asd_for_ctc  # to extract ASD metric aligned to label seq for CTC loss calc
 from jiwer import wer
 
-from torchaudio.models.decoder import ctc_decoder
+# from torchaudio.models.decoder import ctc_decoder
 
 # import k2
 # import k2.ragged as k2r
@@ -112,354 +112,354 @@ def get_paths(sampled_logits):
 
 # INCORPORATING ASD COSDIST VALUES TO THE CTC CALCULATION
 # and defining it as a custom autograd function
-class MyCTC(torch.autograd.Function):
+# class MyCTC(torch.autograd.Function):
 
-    @staticmethod
-    def forward(ctx, logits, seq, input_length, cosdist_for_ctc):
+#     @staticmethod
+#     def forward(ctx, logits, seq, input_length, cosdist_for_ctc):
 
-        # ============= CYTHON CTC loss implementation =============
-        params = logits.transpose(1,0)
-        # convert logits to log probs
-        params = params - (torch.max(params, dim=0)[0])
-        params = torch.exp(params)
-        params = params / torch.sum(params, dim=0)
+#         # ============= CYTHON CTC loss implementation =============
+#         params = logits.transpose(1,0)
+#         # convert logits to log probs
+#         params = params - (torch.max(params, dim=0)[0])
+#         params = torch.exp(params)
+#         params = params / torch.sum(params, dim=0)
 
-        params_arr = params.double().detach().cpu().numpy()
-        seq_arr = seq.int().detach().cpu().numpy()
-        cosdist_arr = np.array(cosdist_for_ctc, dtype=np.float64)
-        # llForward, llBackward, alphas, betas = ctc_optimized.forward_pass(params_arr, seq_arr, blank=31)
-        llForward, llBackward, alphas, betas = ctc_optimized.forward_pass_with_ASD(params_arr, seq_arr, cosdist_arr, blank=31)
+#         params_arr = params.double().detach().cpu().numpy()
+#         seq_arr = seq.int().detach().cpu().numpy()
+#         cosdist_arr = np.array(cosdist_for_ctc, dtype=np.float64)
+#         # llForward, llBackward, alphas, betas = ctc_optimized.forward_pass(params_arr, seq_arr, blank=31)
+#         llForward, llBackward, alphas, betas = ctc_optimized.forward_pass_with_ASD(params_arr, seq_arr, cosdist_arr, blank=31)
 
-        alphas_tensor = torch.from_numpy(alphas).to(device)
-        betas_tensor = torch.from_numpy(betas).to(device)
-        llForward_tensor = torch.tensor(llForward).to(device)
-        llBackward_tensor = torch.tensor(llBackward).to(device)
+#         alphas_tensor = torch.from_numpy(alphas).to(device)
+#         betas_tensor = torch.from_numpy(betas).to(device)
+#         llForward_tensor = torch.tensor(llForward).to(device)
+#         llBackward_tensor = torch.tensor(llBackward).to(device)
 
-        ctx.save_for_backward(params, seq, input_length, alphas_tensor, betas_tensor, llForward_tensor, llBackward_tensor)
+#         ctx.save_for_backward(params, seq, input_length, alphas_tensor, betas_tensor, llForward_tensor, llBackward_tensor)
 
-        return llForward_tensor
+#         return llForward_tensor
 
-        # # ============= ctc loss implementation =============
-        # llForward, llBackward, alphas, betas, params = ctc.forward_pass(logits, seq, device, blank=31)
-        # ctx.save_for_backward(params, seq, input_length, alphas, betas, llForward, llBackward)
+#         # # ============= ctc loss implementation =============
+#         # llForward, llBackward, alphas, betas, params = ctc.forward_pass(logits, seq, device, blank=31)
+#         # ctx.save_for_backward(params, seq, input_length, alphas, betas, llForward, llBackward)
 
-        # return llForward
+#         # return llForward
 
-    @staticmethod
-    def backward(ctx, grad_output):
+#     @staticmethod
+#     def backward(ctx, grad_output):
 
-        # ============= CYTHON grad implementation =============
-        params, seq, input_length, alphas, betas, llForward, llBackward = ctx.saved_tensors
-        params_arr = params.double().detach().cpu().numpy()
-        seq_arr = seq.int().detach().cpu().numpy()
-        alphas_arr = alphas.double().detach().cpu().numpy()
-        betas_arr = betas.double().detach().cpu().numpy()
-        input_len_int = input_length.int().detach().cpu()
+#         # ============= CYTHON grad implementation =============
+#         params, seq, input_length, alphas, betas, llForward, llBackward = ctx.saved_tensors
+#         params_arr = params.double().detach().cpu().numpy()
+#         seq_arr = seq.int().detach().cpu().numpy()
+#         alphas_arr = alphas.double().detach().cpu().numpy()
+#         betas_arr = betas.double().detach().cpu().numpy()
+#         input_len_int = input_length.int().detach().cpu()
 
-        grad = ctc_optimized.backward_pass(params_arr, seq_arr, alphas_arr, betas_arr, input_len_int, blank=31)
+#         grad = ctc_optimized.backward_pass(params_arr, seq_arr, alphas_arr, betas_arr, input_len_int, blank=31)
 
-        grad_tensor = torch.tensor(grad).to(device)
+#         grad_tensor = torch.tensor(grad).to(device)
 
-        return (grad_tensor.transpose(1,0), None, None, None, None)
+#         return (grad_tensor.transpose(1,0), None, None, None, None)
 
-        # # ============= ctc grad implementation =============
-        # params, seq, input_length, alphas, betas, llForward, llBackward = ctx.saved_tensors
-        # grad = ctc.backward_pass(params, seq, alphas, betas, device, blank=31)
+#         # # ============= ctc grad implementation =============
+#         # params, seq, input_length, alphas, betas, llForward, llBackward = ctx.saved_tensors
+#         # grad = ctc.backward_pass(params, seq, alphas, betas, device, blank=31)
 
-        # return (grad.transpose(1,0), None, None)
-
-
-# USING STANF0RD-CTC CODE:
-def compute_CTCloss_withASD(reference_text, predicted_text, ref_label_ids, output_logits, input_lengths, asd_model, asd_tokenizer):  # originally includes: asd_model, asd_tokenizer
-    loss = torch.zeros((len(reference_text)), requires_grad=True, device=device).double()
-    for i in range(len(reference_text)):
-        ref_text = reference_text[i].replace("[UNK]", "")
-        pred_text = predicted_text[i].replace("[UNK]", "")
-        label_ids = ref_label_ids[i]
-        labels_mask = label_ids >= 0
-        flattened_labels = label_ids.masked_select(labels_mask)
-        logits = output_logits[i]
-        ref_alignments = asd_for_ctc.get_asd_align(ref_text, pred_text, asd_model, asd_tokenizer)
-        tokens_compressed = asd_for_ctc.get_per_token_cosdist(ref_alignments)
-        cosdist_for_ctc = asd_for_ctc.get_cosdist_for_ctc(tokens_compressed, flattened_labels)
-        myctcloss = MyCTC.apply
-        if len(flattened_labels) != len(cosdist_for_ctc):
-            raise Exception("cosdist for ctc length not equal to flattened labels length")
-        loss[i] = myctcloss(logits, flattened_labels, input_lengths[i], cosdist_for_ctc)
-        # loss[i] = myctcloss(logits, flattened_labels, input_lengths[i])
-        # print("loss:", loss[i], "lambda:", lambda_asd)
-        # print("ref:", ref_text)
-        # print("hyp:", pred_text)
-        # print("loss:", loss[i])
-    return loss.sum()
+#         # return (grad.transpose(1,0), None, None)
 
 
-def compute_CTCloss_nbest(reference_text, output_logits, input_lengths, asd_model, asd_tokenizer):
-    decoder = ctc_decoder(lexicon=None, tokens="tokens.txt", nbest=10, beam_size=100, blank_token="[PAD]",
-                          sil_token="|", unk_word="[UNK]")
-    targets = []
-    target_lengths = []
-    log_probs = F.log_softmax(output_logits, dim=-1, dtype=torch.float32).transpose(0, 1)
-
-    for i in range(len(reference_text)):
-        ref_text = reference_text[i].replace("[UNK]", "")
-        logits = output_logits[i]
-        # get nbest hypotheses and rank them
-        nbest_list = decoder(logits.type(torch.float32).detach().cpu()[None, :, :])
-        nbest_token_list = []
-        asd_score_list = [0] * len(nbest_list[0])
-        hyp_list = []
-        for j, item in enumerate(nbest_list[0]):
-            tokens = item.tokens
-            for k in range(len(tokens)):
-                if tokens[k] == 0:
-                    tokens_mod = tokens[k+1:]
-                else:
-                    break
-            chars = decoder.idxs_to_tokens(tokens_mod)
-            nbest_token_list.append(tokens_mod)
-            hyp_text = re.sub(" +", " ", "".join(chars).replace("|", " "))
-            hyp_list.append(hyp_text)
-            asd_score_list[j] = compute_asd_score_single_utt(asd_model, asd_tokenizer, ref_text, hyp_text)
-        targets.append(torch.tensor(nbest_token_list[np.argmin(asd_score_list)]))
-        target_lengths.append(torch.tensor(len(nbest_token_list[np.argmin(asd_score_list)])))
-
-    targets_tensor = torch.cat(targets, dim=0)
-    targets_len_tensor = torch.tensor(target_lengths)
-
-    with torch.backends.cudnn.flags(enabled=False):
-        loss = F.ctc_loss(
-                log_probs,
-                targets_tensor,
-                input_lengths,
-                targets_len_tensor,
-                blank=31,
-                reduction="mean",
-                zero_infinity=True,
-                )
-
-    return loss
+# # USING STANF0RD-CTC CODE:
+# def compute_CTCloss_withASD(reference_text, predicted_text, ref_label_ids, output_logits, input_lengths, asd_model, asd_tokenizer):  # originally includes: asd_model, asd_tokenizer
+#     loss = torch.zeros((len(reference_text)), requires_grad=True, device=device).double()
+#     for i in range(len(reference_text)):
+#         ref_text = reference_text[i].replace("[UNK]", "")
+#         pred_text = predicted_text[i].replace("[UNK]", "")
+#         label_ids = ref_label_ids[i]
+#         labels_mask = label_ids >= 0
+#         flattened_labels = label_ids.masked_select(labels_mask)
+#         logits = output_logits[i]
+#         ref_alignments = asd_for_ctc.get_asd_align(ref_text, pred_text, asd_model, asd_tokenizer)
+#         tokens_compressed = asd_for_ctc.get_per_token_cosdist(ref_alignments)
+#         cosdist_for_ctc = asd_for_ctc.get_cosdist_for_ctc(tokens_compressed, flattened_labels)
+#         myctcloss = MyCTC.apply
+#         if len(flattened_labels) != len(cosdist_for_ctc):
+#             raise Exception("cosdist for ctc length not equal to flattened labels length")
+#         loss[i] = myctcloss(logits, flattened_labels, input_lengths[i], cosdist_for_ctc)
+#         # loss[i] = myctcloss(logits, flattened_labels, input_lengths[i])
+#         # print("loss:", loss[i], "lambda:", lambda_asd)
+#         # print("ref:", ref_text)
+#         # print("hyp:", pred_text)
+#         # print("loss:", loss[i])
+#     return loss.sum()
 
 
-# this one did not affect the model outputs i think
-def compute_nbest_asd(reference_text, output_logits, input_lengths, asd_model, asd_tokenizer):
-    decoder = ctc_decoder(lexicon=None, tokens="tokens.txt", nbest=10, beam_size=100, blank_token="[PAD]",
-                          sil_token="|", unk_word="[UNK]")
-    loss = torch.zeros((len(reference_text)), requires_grad=True, device=device).double()
-    # log_probs = F.log_softmax(output_logits, dim=-1, dtype=torch.float32)
-    for i in range(len(reference_text)):
-        ref_text = reference_text[i].replace("[UNK]", "")
-        logits = output_logits[i]
-        # get nbest hypotheses and get path log probs * asd score
-        nbest_list = decoder(logits.type(torch.float32).detach().cpu()[None, :, :])
-        nbest_asd_loss = torch.zeros((len(nbest_list[0])), requires_grad=True, device=device).double()
-        for j, item in enumerate(nbest_list[0]):
-            path_probs = torch.zeros((len(item.tokens)), requires_grad=True, device=device).double()
-            chars = decoder.idxs_to_tokens(item.tokens)
-            hyp_text = re.sub(" +", " ", "".join(chars).replace("|", " "))
-            for k, token in enumerate(item.tokens):
-                print(item.score)
-                if item.timesteps[k] < input_lengths[i]:
-                    start = item.timesteps[k]
-                    if k < (len(item.timesteps) - 1):
-                        end = item.timesteps[k+1]
-                    else:
-                        end = item.timesteps[-1]
-                    path_probs[k] = torch.clamp(logits[start:end, token], min=0).sum()
-                    # path_probs[k] = logits[start:end, token].sum()
-            nbest_asd_loss[j] = compute_asd_score_single_utt(asd_model, asd_tokenizer, ref_text, hyp_text) * (path_probs.sum() / input_lengths[i])
-        loss[i] = nbest_asd_loss.mean()
-    return loss.mean()
+# def compute_CTCloss_nbest(reference_text, output_logits, input_lengths, asd_model, asd_tokenizer):
+#     decoder = ctc_decoder(lexicon=None, tokens="tokens.txt", nbest=10, beam_size=100, blank_token="[PAD]",
+#                           sil_token="|", unk_word="[UNK]")
+#     targets = []
+#     target_lengths = []
+#     log_probs = F.log_softmax(output_logits, dim=-1, dtype=torch.float32).transpose(0, 1)
+
+#     for i in range(len(reference_text)):
+#         ref_text = reference_text[i].replace("[UNK]", "")
+#         logits = output_logits[i]
+#         # get nbest hypotheses and rank them
+#         nbest_list = decoder(logits.type(torch.float32).detach().cpu()[None, :, :])
+#         nbest_token_list = []
+#         asd_score_list = [0] * len(nbest_list[0])
+#         hyp_list = []
+#         for j, item in enumerate(nbest_list[0]):
+#             tokens = item.tokens
+#             for k in range(len(tokens)):
+#                 if tokens[k] == 0:
+#                     tokens_mod = tokens[k+1:]
+#                 else:
+#                     break
+#             chars = decoder.idxs_to_tokens(tokens_mod)
+#             nbest_token_list.append(tokens_mod)
+#             hyp_text = re.sub(" +", " ", "".join(chars).replace("|", " "))
+#             hyp_list.append(hyp_text)
+#             asd_score_list[j] = compute_asd_score_single_utt(asd_model, asd_tokenizer, ref_text, hyp_text)
+#         targets.append(torch.tensor(nbest_token_list[np.argmin(asd_score_list)]))
+#         target_lengths.append(torch.tensor(len(nbest_token_list[np.argmin(asd_score_list)])))
+
+#     targets_tensor = torch.cat(targets, dim=0)
+#     targets_len_tensor = torch.tensor(target_lengths)
+
+#     with torch.backends.cudnn.flags(enabled=False):
+#         loss = F.ctc_loss(
+#                 log_probs,
+#                 targets_tensor,
+#                 input_lengths,
+#                 targets_len_tensor,
+#                 blank=31,
+#                 reduction="mean",
+#                 zero_infinity=True,
+#                 )
+
+#     return loss
+
+
+# # this one did not affect the model outputs i think
+# def compute_nbest_asd(reference_text, output_logits, input_lengths, asd_model, asd_tokenizer):
+#     decoder = ctc_decoder(lexicon=None, tokens="tokens.txt", nbest=10, beam_size=100, blank_token="[PAD]",
+#                           sil_token="|", unk_word="[UNK]")
+#     loss = torch.zeros((len(reference_text)), requires_grad=True, device=device).double()
+#     # log_probs = F.log_softmax(output_logits, dim=-1, dtype=torch.float32)
+#     for i in range(len(reference_text)):
+#         ref_text = reference_text[i].replace("[UNK]", "")
+#         logits = output_logits[i]
+#         # get nbest hypotheses and get path log probs * asd score
+#         nbest_list = decoder(logits.type(torch.float32).detach().cpu()[None, :, :])
+#         nbest_asd_loss = torch.zeros((len(nbest_list[0])), requires_grad=True, device=device).double()
+#         for j, item in enumerate(nbest_list[0]):
+#             path_probs = torch.zeros((len(item.tokens)), requires_grad=True, device=device).double()
+#             chars = decoder.idxs_to_tokens(item.tokens)
+#             hyp_text = re.sub(" +", " ", "".join(chars).replace("|", " "))
+#             for k, token in enumerate(item.tokens):
+#                 print(item.score)
+#                 if item.timesteps[k] < input_lengths[i]:
+#                     start = item.timesteps[k]
+#                     if k < (len(item.timesteps) - 1):
+#                         end = item.timesteps[k+1]
+#                     else:
+#                         end = item.timesteps[-1]
+#                     path_probs[k] = torch.clamp(logits[start:end, token], min=0).sum()
+#                     # path_probs[k] = logits[start:end, token].sum()
+#             nbest_asd_loss[j] = compute_asd_score_single_utt(asd_model, asd_tokenizer, ref_text, hyp_text) * (path_probs.sum() / input_lengths[i])
+#         loss[i] = nbest_asd_loss.mean()
+#     return loss.mean()
 
 
 
 
-# ===================================================
-# CTC with Gumbel-Softmax sampled ASD scoring
+# # ===================================================
+# # CTC with Gumbel-Softmax sampled ASD scoring
 
-def sampled_logits_asd_loss(reference_text, predicted_text, output_logits, metric_model, metric_tokenizer):
-    # calculate asd scores for batch:
-    asd_scores = compute_asd_score_batch(metric_model, metric_tokenizer, reference_text, predicted_text)
-    # sample from output logits:
-    sampled_logits = F.gumbel_softmax(output_logits, tau=1, hard=True, dim=-1)
-    # sampled logits x ASD score:
-    temp_list = []
-    for i, logits in enumerate(sampled_logits):
-        asd_matrix = torch.full_like(logits, (1 + (asd_scores[i]*10)), requires_grad=False)
-        temp_list.append(logits.detach() * asd_matrix)
-    sampled_logits_asd = torch.stack(temp_list, dim=0)
-    sampled_logits_asd.unsqueeze(0)
-    # calculate loss:
-    # L1loss = torch.nn.SmoothL1Loss(reduction="mean", beta=1)
-    L1loss = torch.nn.L1Loss(reduction="mean")
-    loss = L1loss(input=sampled_logits, target=sampled_logits_asd) * 10
-    # MSEloss = torch.nn.MSELoss(reduction="mean")
-    # loss = MSEloss(input=sampled_logits, target=sampled_logits_asd) * 100
-    return loss
-
-
-def compute_sampled_meanASD(reference_text, output_logits, asd_model, asd_tokenizer, processor):
-    num_samples = 5
-    loss = torch.zeros((len(reference_text)), requires_grad=True, device=device).double()
-    for i in range(len(reference_text)):
-        ref_text = reference_text[i].replace("[UNK]", "")
-        logits = output_logits[i]
-        asd_scores = [0] * num_samples
-        # get samples using gumble softmax sampling
-        for j in range(num_samples):
-            sampled_logits = F.gumbel_softmax(logits, tau=10, hard=True, dim=-1)
-            hyp_text = processor.decode(sampled_logits.detach().cpu().numpy()).text
-            asd_scores[j] = compute_asd_score_single_utt(asd_model, asd_tokenizer, ref_text, hyp_text)
-        loss[i] = np.mean(asd_scores)
-    return torch.mean(loss)
+# def sampled_logits_asd_loss(reference_text, predicted_text, output_logits, metric_model, metric_tokenizer):
+#     # calculate asd scores for batch:
+#     asd_scores = compute_asd_score_batch(metric_model, metric_tokenizer, reference_text, predicted_text)
+#     # sample from output logits:
+#     sampled_logits = F.gumbel_softmax(output_logits, tau=1, hard=True, dim=-1)
+#     # sampled logits x ASD score:
+#     temp_list = []
+#     for i, logits in enumerate(sampled_logits):
+#         asd_matrix = torch.full_like(logits, (1 + (asd_scores[i]*10)), requires_grad=False)
+#         temp_list.append(logits.detach() * asd_matrix)
+#     sampled_logits_asd = torch.stack(temp_list, dim=0)
+#     sampled_logits_asd.unsqueeze(0)
+#     # calculate loss:
+#     # L1loss = torch.nn.SmoothL1Loss(reduction="mean", beta=1)
+#     L1loss = torch.nn.L1Loss(reduction="mean")
+#     loss = L1loss(input=sampled_logits, target=sampled_logits_asd) * 10
+#     # MSEloss = torch.nn.MSELoss(reduction="mean")
+#     # loss = MSEloss(input=sampled_logits, target=sampled_logits_asd) * 100
+#     return loss
 
 
-def sampled_pair_hinge_loss(ref_text, output_logits, input_lengths, asd_model, asd_tokenizer, processor):
-    loss = torch.zeros((len(ref_text)), requires_grad=True, device=device).double()
-    for i in range(len(ref_text)):
-        log_probs = F.log_softmax(output_logits[i], dim=-1, dtype=torch.float32)
-        # non_zero_logits = []
-        paths_list = []
-        non_zero_asd = []
-        while len(non_zero_asd) < 2:
-            sampled_logits = F.gumbel_softmax(output_logits[i], tau=100, hard=True, dim=-1)
-            hyp_text = processor.decode(sampled_logits.detach().cpu().numpy()).text
-            asd_score = compute_asd_score_single_utt(asd_model, asd_tokenizer, ref_text[i], hyp_text)
-            if asd_score != 0:
-                # non_zero_logits.append(sampled_logits)
-                paths_list.append(get_paths(sampled_logits))
-                non_zero_asd.append(asd_score)
-        # mass_prob_0 = get_mass_prob(non_zero_logits[0].type(torch.LongTensor).to(device), log_probs, input_lengths[i])
-        # mass_prob_1 = get_mass_prob(non_zero_logits[1].type(torch.LongTensor).to(device), log_probs, input_lengths[i])
-        mass_prob_0 = get_mass_prob(paths_list[0], log_probs, input_lengths[i])
-        mass_prob_1 = get_mass_prob(paths_list[1], log_probs, input_lengths[i])
-        if non_zero_asd[0] < non_zero_asd[1]:
-            subtract_path_probs = mass_prob_1 - mass_prob_0
-        else:
-            subtract_path_probs = mass_prob_0 - mass_prob_1
-        # loss[i] = torch.sum(torch.clamp(subtract_path_probs, min=0))
-        loss[i] = torch.clamp(subtract_path_probs, min=0)
-    return torch.mean(loss)
+# def compute_sampled_meanASD(reference_text, output_logits, asd_model, asd_tokenizer, processor):
+#     num_samples = 5
+#     loss = torch.zeros((len(reference_text)), requires_grad=True, device=device).double()
+#     for i in range(len(reference_text)):
+#         ref_text = reference_text[i].replace("[UNK]", "")
+#         logits = output_logits[i]
+#         asd_scores = [0] * num_samples
+#         # get samples using gumble softmax sampling
+#         for j in range(num_samples):
+#             sampled_logits = F.gumbel_softmax(logits, tau=10, hard=True, dim=-1)
+#             hyp_text = processor.decode(sampled_logits.detach().cpu().numpy()).text
+#             asd_scores[j] = compute_asd_score_single_utt(asd_model, asd_tokenizer, ref_text, hyp_text)
+#         loss[i] = np.mean(asd_scores)
+#     return torch.mean(loss)
 
 
-def sampled_multi_hinge_loss(ref_text, output_logits, input_lengths, asd_model, asd_tokenizer, processor):
-    num_samples = 10
-    loss = torch.zeros((len(ref_text)), requires_grad=True, device=device).double()
-    for i in range(len(ref_text)):
-        log_probs = F.log_softmax(output_logits[i], dim=-1, dtype=torch.float32)
-        non_zero_logits = []
-        non_zero_asd = []
-        while len(non_zero_asd) < num_samples:
-            sampled_logits = F.gumbel_softmax(output_logits[i], tau=100, hard=True, dim=-1)
-            hyp_text = processor.decode(sampled_logits.detach().cpu().numpy()).text
-            asd_score = compute_asd_score_single_utt(asd_model, asd_tokenizer, ref_text[i], hyp_text)
-            if asd_score != 0:
-                non_zero_logits.append(sampled_logits)
-                non_zero_asd.append(asd_score)
-        lowest_asd_idx = np.argmin(np.array(non_zero_asd))
-        mass_prob_list = []
-        for j in range(len(non_zero_asd)):
-            mass_prob_list.append(get_mass_prob(non_zero_logits[j].type(torch.LongTensor).to(device), log_probs, input_lengths[i]))
-        local_loss = torch.zeros((len(mass_prob_list)-1), requires_grad=True, device=device).double()
-        l = 0
-        for k in range(len(mass_prob_list)):
-            if k != lowest_asd_idx:
-                subtract_path_probs = mass_prob_list[k] - mass_prob_list[lowest_asd_idx]
-                local_loss[l] = torch.sum(torch.clamp((subtract_path_probs), min=0))
-                l += 1
-        loss[i] = torch.mean(local_loss)
-    return torch.mean(loss)
+# def sampled_pair_hinge_loss(ref_text, output_logits, input_lengths, asd_model, asd_tokenizer, processor):
+#     loss = torch.zeros((len(ref_text)), requires_grad=True, device=device).double()
+#     for i in range(len(ref_text)):
+#         log_probs = F.log_softmax(output_logits[i], dim=-1, dtype=torch.float32)
+#         # non_zero_logits = []
+#         paths_list = []
+#         non_zero_asd = []
+#         while len(non_zero_asd) < 2:
+#             sampled_logits = F.gumbel_softmax(output_logits[i], tau=100, hard=True, dim=-1)
+#             hyp_text = processor.decode(sampled_logits.detach().cpu().numpy()).text
+#             asd_score = compute_asd_score_single_utt(asd_model, asd_tokenizer, ref_text[i], hyp_text)
+#             if asd_score != 0:
+#                 # non_zero_logits.append(sampled_logits)
+#                 paths_list.append(get_paths(sampled_logits))
+#                 non_zero_asd.append(asd_score)
+#         # mass_prob_0 = get_mass_prob(non_zero_logits[0].type(torch.LongTensor).to(device), log_probs, input_lengths[i])
+#         # mass_prob_1 = get_mass_prob(non_zero_logits[1].type(torch.LongTensor).to(device), log_probs, input_lengths[i])
+#         mass_prob_0 = get_mass_prob(paths_list[0], log_probs, input_lengths[i])
+#         mass_prob_1 = get_mass_prob(paths_list[1], log_probs, input_lengths[i])
+#         if non_zero_asd[0] < non_zero_asd[1]:
+#             subtract_path_probs = mass_prob_1 - mass_prob_0
+#         else:
+#             subtract_path_probs = mass_prob_0 - mass_prob_1
+#         # loss[i] = torch.sum(torch.clamp(subtract_path_probs, min=0))
+#         loss[i] = torch.clamp(subtract_path_probs, min=0)
+#     return torch.mean(loss)
 
 
-def sampled_multi_hinge_loss_ver2(ref_text, output_logits, input_lengths, asd_model, asd_tokenizer, processor):
-    num_samples = 10
-    loss = torch.zeros((len(ref_text)), requires_grad=True, device=device).double()
-    for i in range(len(ref_text)):
-        log_probs = F.log_softmax(output_logits[i], dim=-1, dtype=torch.float32)
-        non_zero_logits = []
-        non_zero_asd = []
-        while len(non_zero_asd) < num_samples:
-            sampled_logits = F.gumbel_softmax(output_logits[i], tau=100, hard=True, dim=-1)
-            hyp_text = processor.decode(sampled_logits.detach().cpu().numpy()).text
-            asd_score = compute_asd_score_single_utt(asd_model, asd_tokenizer, ref_text[i], hyp_text)
-            non_zero_logits.append(sampled_logits)
-            non_zero_asd.append(asd_score)
-        lowest_asd_idx = np.argmin(np.array(non_zero_asd))
-        mass_prob_list = []
-        for j in range(len(non_zero_asd)):
-            mass_prob_list.append(get_mass_prob(non_zero_logits[j].type(torch.LongTensor).to(device), log_probs, input_lengths[i]))
-        local_loss = torch.zeros((len(mass_prob_list)-1), requires_grad=True, device=device).double()
-        l = 0
-        for k in range(len(mass_prob_list)):
-            if k != lowest_asd_idx:
-                subtract_path_probs = mass_prob_list[k] - mass_prob_list[lowest_asd_idx]
-                local_loss[l] = torch.sum(torch.clamp((subtract_path_probs), min=0))
-                l += 1
-        loss[i] = torch.mean(local_loss)
-    return torch.mean(loss)
+# def sampled_multi_hinge_loss(ref_text, output_logits, input_lengths, asd_model, asd_tokenizer, processor):
+#     num_samples = 10
+#     loss = torch.zeros((len(ref_text)), requires_grad=True, device=device).double()
+#     for i in range(len(ref_text)):
+#         log_probs = F.log_softmax(output_logits[i], dim=-1, dtype=torch.float32)
+#         non_zero_logits = []
+#         non_zero_asd = []
+#         while len(non_zero_asd) < num_samples:
+#             sampled_logits = F.gumbel_softmax(output_logits[i], tau=100, hard=True, dim=-1)
+#             hyp_text = processor.decode(sampled_logits.detach().cpu().numpy()).text
+#             asd_score = compute_asd_score_single_utt(asd_model, asd_tokenizer, ref_text[i], hyp_text)
+#             if asd_score != 0:
+#                 non_zero_logits.append(sampled_logits)
+#                 non_zero_asd.append(asd_score)
+#         lowest_asd_idx = np.argmin(np.array(non_zero_asd))
+#         mass_prob_list = []
+#         for j in range(len(non_zero_asd)):
+#             mass_prob_list.append(get_mass_prob(non_zero_logits[j].type(torch.LongTensor).to(device), log_probs, input_lengths[i]))
+#         local_loss = torch.zeros((len(mass_prob_list)-1), requires_grad=True, device=device).double()
+#         l = 0
+#         for k in range(len(mass_prob_list)):
+#             if k != lowest_asd_idx:
+#                 subtract_path_probs = mass_prob_list[k] - mass_prob_list[lowest_asd_idx]
+#                 local_loss[l] = torch.sum(torch.clamp((subtract_path_probs), min=0))
+#                 l += 1
+#         loss[i] = torch.mean(local_loss)
+#     return torch.mean(loss)
 
 
-# get mass probability of sampled path & calculate the expected ASD score
-
-# this function doesn't seem to change the eval wer/asd with each iteration, no effect to the model weights?
-def sampled_multi_expected_ASD(ref_text, output_logits, input_lengths, asd_model, asd_tokenizer, processor):
-    num_samples = 5
-    loss = torch.zeros((len(ref_text)), requires_grad=True, device=device).double()
-    for i in range(len(ref_text)):
-        log_probs = F.log_softmax(output_logits[i], dim=-1, dtype=torch.float32)
-        samples_loss = torch.zeros(num_samples, requires_grad=True, device=device).double()
-        for j in range(num_samples):
-            sampled_logits = F.gumbel_softmax(output_logits[i], tau=10, hard=True, dim=-1)
-            hyp_text = processor.decode(sampled_logits.detach().cpu().numpy()).text
-            asd_score = compute_asd_score_single_utt(asd_model, asd_tokenizer, ref_text[i], hyp_text)
-            mass_prob = get_mass_prob(sampled_logits.type(torch.LongTensor).to(device), log_probs, input_lengths[i])
-            mass_prob_sum = torch.sum(mass_prob)
-            path_prob = mass_prob_sum * sampled_logits
-            path_prob_norm = torch.exp(path_prob / torch.sum(path_prob)) * asd_score
-            samples_loss[j] = torch.mean(path_prob_norm)
-            # samples_loss[j] = torch.sum(torch.clamp(mass_prob, min=0)) * asd_score
-        loss[i] = torch.mean(samples_loss)
-    return torch.mean(loss)
-
-
-def sampled_multi_expected_ASD_ver2(ref_text, output_logits, input_lengths, asd_model, asd_tokenizer, processor):
-    num_samples = 5
-    loss = torch.zeros((len(ref_text)), requires_grad=True, device=device).double()
-    for i in range(len(ref_text)):
-        log_probs = F.log_softmax(output_logits[i], dim=-1, dtype=torch.float32)
-        samples_loss = torch.zeros(num_samples, requires_grad=True, device=device).double()
-        sample_probs = torch.zeros(num_samples, requires_grad=True, device=device).double()
-        asd_scores = []
-        for j in range(num_samples):
-            sampled_logits = F.gumbel_softmax(output_logits[i], tau=10, hard=True, dim=-1)
-            hyp_text = processor.decode(sampled_logits.detach().cpu().numpy()).text
-            asd_scores.append(compute_asd_score_single_utt(asd_model, asd_tokenizer, ref_text[i], hyp_text))
-            mass_prob = get_mass_prob(sampled_logits.type(torch.LongTensor).to(device), log_probs, input_lengths[i])
-            sample_probs[j] = torch.sum(mass_prob)
-        for k in range(num_samples):
-            samples_loss[k] = torch.exp((sample_probs[k] / torch.sum(sample_probs)) * asd_scores[k])
-        loss[i] = torch.mean(samples_loss)
-    return torch.mean(loss)
+# def sampled_multi_hinge_loss_ver2(ref_text, output_logits, input_lengths, asd_model, asd_tokenizer, processor):
+#     num_samples = 10
+#     loss = torch.zeros((len(ref_text)), requires_grad=True, device=device).double()
+#     for i in range(len(ref_text)):
+#         log_probs = F.log_softmax(output_logits[i], dim=-1, dtype=torch.float32)
+#         non_zero_logits = []
+#         non_zero_asd = []
+#         while len(non_zero_asd) < num_samples:
+#             sampled_logits = F.gumbel_softmax(output_logits[i], tau=100, hard=True, dim=-1)
+#             hyp_text = processor.decode(sampled_logits.detach().cpu().numpy()).text
+#             asd_score = compute_asd_score_single_utt(asd_model, asd_tokenizer, ref_text[i], hyp_text)
+#             non_zero_logits.append(sampled_logits)
+#             non_zero_asd.append(asd_score)
+#         lowest_asd_idx = np.argmin(np.array(non_zero_asd))
+#         mass_prob_list = []
+#         for j in range(len(non_zero_asd)):
+#             mass_prob_list.append(get_mass_prob(non_zero_logits[j].type(torch.LongTensor).to(device), log_probs, input_lengths[i]))
+#         local_loss = torch.zeros((len(mass_prob_list)-1), requires_grad=True, device=device).double()
+#         l = 0
+#         for k in range(len(mass_prob_list)):
+#             if k != lowest_asd_idx:
+#                 subtract_path_probs = mass_prob_list[k] - mass_prob_list[lowest_asd_idx]
+#                 local_loss[l] = torch.sum(torch.clamp((subtract_path_probs), min=0))
+#                 l += 1
+#         loss[i] = torch.mean(local_loss)
+#     return torch.mean(loss)
 
 
-def sampled_multi_expected_ASD_ver3(ref_text, output_logits, input_lengths, asd_model, asd_tokenizer, processor):
-    num_samples = 5
-    loss = torch.zeros((len(ref_text)), requires_grad=True, device=device).double()
-    for i in range(len(ref_text)):
-        log_probs = F.log_softmax(output_logits[i], dim=-1, dtype=torch.float32)
-        samples_loss = torch.zeros(num_samples, requires_grad=True, device=device).double()
-        for j in range(num_samples):
-            sampled_logits = F.gumbel_softmax(output_logits[i], tau=10, hard=True, dim=-1)
-            # new definition of the path:
-            paths_tensor = get_paths(sampled_logits)
-            hyp_text = processor.decode(sampled_logits.detach().clone().cpu().numpy()).text
-            asd_score = torch.tensor(compute_asd_score_single_utt(asd_model, asd_tokenizer, ref_text[i], hyp_text),
-                                     device=device, requires_grad=True)
-            # mass_prob = get_mass_prob(sampled_logits.type(torch.LongTensor).to(device), log_probs, input_lengths[i])
-            mass_prob = get_mass_prob(paths_tensor, log_probs, input_lengths[i])
-            samples_loss[j] = torch.exp(mass_prob) * (asd_score)
-        loss[i] = torch.mean(samples_loss)
-    return torch.mean(loss)
+# # get mass probability of sampled path & calculate the expected ASD score
+
+# # this function doesn't seem to change the eval wer/asd with each iteration, no effect to the model weights?
+# def sampled_multi_expected_ASD(ref_text, output_logits, input_lengths, asd_model, asd_tokenizer, processor):
+#     num_samples = 5
+#     loss = torch.zeros((len(ref_text)), requires_grad=True, device=device).double()
+#     for i in range(len(ref_text)):
+#         log_probs = F.log_softmax(output_logits[i], dim=-1, dtype=torch.float32)
+#         samples_loss = torch.zeros(num_samples, requires_grad=True, device=device).double()
+#         for j in range(num_samples):
+#             sampled_logits = F.gumbel_softmax(output_logits[i], tau=10, hard=True, dim=-1)
+#             hyp_text = processor.decode(sampled_logits.detach().cpu().numpy()).text
+#             asd_score = compute_asd_score_single_utt(asd_model, asd_tokenizer, ref_text[i], hyp_text)
+#             mass_prob = get_mass_prob(sampled_logits.type(torch.LongTensor).to(device), log_probs, input_lengths[i])
+#             mass_prob_sum = torch.sum(mass_prob)
+#             path_prob = mass_prob_sum * sampled_logits
+#             path_prob_norm = torch.exp(path_prob / torch.sum(path_prob)) * asd_score
+#             samples_loss[j] = torch.mean(path_prob_norm)
+#             # samples_loss[j] = torch.sum(torch.clamp(mass_prob, min=0)) * asd_score
+#         loss[i] = torch.mean(samples_loss)
+#     return torch.mean(loss)
+
+
+# def sampled_multi_expected_ASD_ver2(ref_text, output_logits, input_lengths, asd_model, asd_tokenizer, processor):
+#     num_samples = 5
+#     loss = torch.zeros((len(ref_text)), requires_grad=True, device=device).double()
+#     for i in range(len(ref_text)):
+#         log_probs = F.log_softmax(output_logits[i], dim=-1, dtype=torch.float32)
+#         samples_loss = torch.zeros(num_samples, requires_grad=True, device=device).double()
+#         sample_probs = torch.zeros(num_samples, requires_grad=True, device=device).double()
+#         asd_scores = []
+#         for j in range(num_samples):
+#             sampled_logits = F.gumbel_softmax(output_logits[i], tau=10, hard=True, dim=-1)
+#             hyp_text = processor.decode(sampled_logits.detach().cpu().numpy()).text
+#             asd_scores.append(compute_asd_score_single_utt(asd_model, asd_tokenizer, ref_text[i], hyp_text))
+#             mass_prob = get_mass_prob(sampled_logits.type(torch.LongTensor).to(device), log_probs, input_lengths[i])
+#             sample_probs[j] = torch.sum(mass_prob)
+#         for k in range(num_samples):
+#             samples_loss[k] = torch.exp((sample_probs[k] / torch.sum(sample_probs)) * asd_scores[k])
+#         loss[i] = torch.mean(samples_loss)
+#     return torch.mean(loss)
+
+
+# def sampled_multi_expected_ASD_ver3(ref_text, output_logits, input_lengths, asd_model, asd_tokenizer, processor):
+#     num_samples = 5
+#     loss = torch.zeros((len(ref_text)), requires_grad=True, device=device).double()
+#     for i in range(len(ref_text)):
+#         log_probs = F.log_softmax(output_logits[i], dim=-1, dtype=torch.float32)
+#         samples_loss = torch.zeros(num_samples, requires_grad=True, device=device).double()
+#         for j in range(num_samples):
+#             sampled_logits = F.gumbel_softmax(output_logits[i], tau=10, hard=True, dim=-1)
+#             # new definition of the path:
+#             paths_tensor = get_paths(sampled_logits)
+#             hyp_text = processor.decode(sampled_logits.detach().clone().cpu().numpy()).text
+#             asd_score = torch.tensor(compute_asd_score_single_utt(asd_model, asd_tokenizer, ref_text[i], hyp_text),
+#                                      device=device, requires_grad=True)
+#             # mass_prob = get_mass_prob(sampled_logits.type(torch.LongTensor).to(device), log_probs, input_lengths[i])
+#             mass_prob = get_mass_prob(paths_tensor, log_probs, input_lengths[i])
+#             samples_loss[j] = torch.exp(mass_prob) * (asd_score)
+#         loss[i] = torch.mean(samples_loss)
+#     return torch.mean(loss)
 
 
 
@@ -659,28 +659,36 @@ def beam_search_decoder(
 def beam_search_decoder_mod(logit: torch.Tensor, beam_size: int, masks: torch.Tensor):
     # beam search decoder
     indices, _ = batch_beam_search(logit, beam_size, masks)
+    # print("indices:", indices.shape, indices.requires_grad)
+
     # recompute PDF for gradient
     log_post = torch.nn.functional.log_softmax(logit, dim=-1)
+    # print("log_post:", log_post.shape, log_post.requires_grad)
+
     # b,t,v -> b,n,t,v
     nlog_post = log_post.unsqueeze(1).repeat(1, beam_size, 1, 1)
+    # print("nlog_post:", nlog_post.shape, nlog_post.requires_grad)
+
     # indices: b, n, t -> b, n, t
     top_k_log_post = torch.gather(nlog_post, -1, indices.unsqueeze(-1)).squeeze(-1)
+    # print("top_k_log_post:", top_k_log_post.shape, top_k_log_post.requires_grad)
+
     # b, n, t -> b, n
     topk_log_prob = torch.sum(top_k_log_post.masked_fill(masks.unsqueeze(1), 0), -1)
+    # print("topk_log_prob:", topk_log_prob.shape, topk_log_prob.requires_grad)
+
     # MOD: extracting log probs for hyp decoding
-    # nlog_no_softmax = logit.detach().clone().unsqueeze(1).repeat(1, beam_size, 1, 1)
-    # top_k_no_softmax = torch.gather(nlog_no_softmax, -1, indices.unsqueeze(-1)).squeeze(-1)
-    # top_k_no_softmax2 = top_k_no_softmax.masked_fill(masks.unsqueeze(1), 0)
-    nlog_probs = torch.zeros_like(nlog_post)
-    batch_size = nlog_probs.size()[0]
-    num_frames = nlog_probs.size()[2]
-    num_samples = beam_size
-    for i in range(batch_size):
-        for j in range(num_samples):
-            for k in range(num_frames):
-                # nlog_probs[i,j,k,indices[i,j,k]] = top_k_no_softmax2[i,j,k]
-                nlog_probs[i,j,k,indices[i,j,k]] = 1.0
-    return topk_log_prob.transpose(0, 1), indices.transpose(0, 1), nlog_probs.transpose(0, 1)
+    # nlog_probs = torch.zeros_like(nlog_post)
+    # batch_size = nlog_probs.size()[0]
+    # num_frames = nlog_probs.size()[2]
+    # num_samples = beam_size
+    # for i in range(batch_size):
+    #     for j in range(num_samples):
+    #         for k in range(num_frames):
+    #             nlog_probs[i,j,k,indices[i,j,k]] = 1.0
+
+    # return topk_log_prob.transpose(0, 1), indices.transpose(0, 1), nlog_probs.transpose(0, 1)
+    return topk_log_prob.transpose(0, 1), indices.transpose(0, 1)
 
 
 def compute_mwer_loss(
@@ -771,16 +779,16 @@ def compute_masd_loss(nbest_log_distribution, asd_scores):
     return asd_loss
 
 
-def compute_masd_loss_ver2(nbest_log_distribution, asd_scores, normalized_score=True):
+def compute_masd_loss_ver2(nbest_log_distribution, asd_scores, normalized_score=False):
     # Computes log distribution
     # (n, b) -> (b,): log( p1+p2+...+pn ) = log( exp(log_p1)+exp(log_p2)+...+exp(log_pn) )
     sum_nbest_log_distribution = torch.logsumexp(nbest_log_distribution, 0)
+    # print("sum_nbest_log_distribution:", sum_nbest_log_distribution.shape, sum_nbest_log_distribution.requires_grad)
 
     # Re-normalized over just the N-best hypotheses.
     # (n, b) - (b,) -> (n, b): exp(log_p)/exp(log_p_sum) = exp(log_p-log_p_sum)
     normal_nbest_distribution = torch.exp(nbest_log_distribution - sum_nbest_log_distribution)
-
-    # print("normal nbest dist:", normal_nbest_distribution)
+    # print("normal nbest dist:", normal_nbest_distribution.shape, normal_nbest_distribution.requires_grad)
 
     if normalized_score == True:
         mean_asd = torch.mean(asd_scores, 0)
@@ -788,10 +796,7 @@ def compute_masd_loss_ver2(nbest_log_distribution, asd_scores, normalized_score=
         asd_loss = torch.sum(normal_nbest_distribution * asd_norm, 0)
     else:
         asd_loss = torch.sum(normal_nbest_distribution * asd_scores, 0)
-
-    # print("asd score:", asd_scores)
-    # print("asd x dist:", normal_nbest_distribution * asd_scores)
-    # print("asd loss:", asd_loss)
+        # print("asd_loss:", asd_loss.shape, asd_loss.requires_grad)
 
     return asd_loss
 
@@ -917,23 +922,20 @@ class Seq2seqMASDLoss(torch.nn.Module):
         Return:
             loss: normalized MWER loss
         """
-        from functools import partial
 
         asd_scores = []
         for hyp_group in hyp_list:
-            # path_scores = list(map(partial(compute_asd_score_single_utt, metric_model, metric_tokenizer),
-            #                        ref_list, hyp_group))
             path_scores = []
             for ref, hyp in zip(ref_list, hyp_group):
-                path_scores.append(compute_asd_score_single_utt(metric_model, metric_tokenizer, ref, hyp, normalized=True))
+                path_scores.append(compute_asd_score_single_utt(metric_model, metric_tokenizer, ref, hyp))
                 # path_scores.append(wer(ref, hyp))
             asd_scores.append(path_scores)
 
         asd_scores_tensor = torch.tensor(asd_scores, device=device)
 
         # masd_loss = compute_masd_loss(nbest_log_distribution, asd_scores_tensor)
-        # masd_loss = compute_masd_loss_ver2(nbest_log_distribution, asd_scores_tensor, normalized_score=False)
-        masd_loss = compute_masd_loss_ver3(nbest_log_distribution, asd_scores_tensor, self.candidate_paths_num)
+        masd_loss = compute_masd_loss_ver2(nbest_log_distribution, asd_scores_tensor, normalized_score=True)  # True for MWER trial
+        # masd_loss = compute_masd_loss_ver3(nbest_log_distribution, asd_scores_tensor, self.candidate_paths_num)
 
         if self.reduction == "sum":
             return torch.sum(masd_loss)
@@ -958,7 +960,10 @@ class Seq2seqMASDLoss(torch.nn.Module):
 
         if self.sampling_method == "beam_search":
             # Beam search to generate multiple candidate paths
-            nbest_log_distribution, nbest_pred, nlog_probs = beam_search_decoder_mod(
+            # nbest_log_distribution, nbest_pred, nlog_probs = beam_search_decoder_mod(
+            #     logit, self.candidate_paths_num, masks
+            # )
+            nbest_log_distribution, nbest_pred = beam_search_decoder_mod(
                 logit, self.candidate_paths_num, masks
             )
 
@@ -970,7 +975,8 @@ class Seq2seqMASDLoss(torch.nn.Module):
         else:
             raise Exception(f"Not support sampling_method: {self.sampling_method} ")
 
-        return nbest_log_distribution, nlog_probs
+        # return nbest_log_distribution, nlog_probs, nbest_pred
+        return nbest_log_distribution, nbest_pred
 
 
 
