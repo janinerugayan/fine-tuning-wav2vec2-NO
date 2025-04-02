@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"  # or "0,1" for multiple GPUs
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # or "0,1" for multiple GPUs
 
 import collections
 if not hasattr(collections, "Container"):
@@ -190,11 +190,11 @@ print("Loading dataset direct from data dir to pandas dataframe")
 #                  "../../datasets/NordTrans_TUL/train/NRK/",
 #                  "../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25per_30secmax/"]
 
-# data_dir_list = ["../../datasets/NordTrans_TUL/train_small/Stortinget/",
-#                  "../../datasets/NordTrans_TUL/train_small/NRK/",
-#                  "../../datasets/NordTrans_TUL/train_small/Rundkast/"]
+data_dir_list = ["../../datasets/NordTrans_TUL/train_small/Stortinget/",
+                 "../../datasets/NordTrans_TUL/train_small/NRK/",
+                 "../../datasets/NordTrans_TUL/train_small/Rundkast/"]
 
-data_dir_list = ["../../datasets/NordTrans_TUL/train_small/Rundkast/"]
+# data_dir_list = ["../../datasets/NordTrans_TUL/train_small/Rundkast/"]
 
 csv_export_dir = "../../model_ckpts/" + args.fine_tuned_model_ver + "/runs/"
 
@@ -288,12 +288,12 @@ training_args = TrainingArguments(
   num_train_epochs=args.num_train_epochs,  # orig: 30
   fp16=True,  # orig: True
   gradient_checkpointing=True,
-  save_steps=300,  # for one dataset exp
-  eval_steps=300,  # for one dataset exp
-  logging_steps=300,  # for one dataset exp
-#   save_steps=500,  # orig: 500
-#   eval_steps=500,  # orig: 500
-#   logging_steps=500,  # orig: 500
+#   save_steps=300,  # for one dataset exp
+#   eval_steps=300,  # for one dataset exp
+#   logging_steps=300,  # for one dataset exp
+  save_steps=500,  # orig: 500
+  eval_steps=500,  # orig: 500
+  logging_steps=500,  # orig: 500
   learning_rate=args.learning_rate,  # orig: 1e-4
   weight_decay=0.005,
   warmup_steps=2000,  # orig: 1000
@@ -340,70 +340,32 @@ if args.use_asd_metric == 1:
 
             outputs = model(**inputs)
             logits = outputs["logits"]
-            # log_probs = F.log_softmax(logits, dim=-1, dtype=torch.float32)
 
             attention_mask = inputs["attention_mask"]
             input_lengths = model._get_feat_extract_output_lengths(attention_mask.sum(-1)).to(torch.long)
 
-            # output_logits = outputs["logits"].to(torch.float32)
-            # pred_logits = self._gather_and_numpify(output_logits.detach(), "eval_preds")
-            # pred_str = processor.batch_decode(pred_logits)
             labels = inputs["labels"]
             label_str = processor_woLM.batch_decode(labels, group_tokens=False)  # we do not want to group tokens when computing the metrics
 
-            # labels = inputs["labels"]
-            labels_length = torch.zeros((labels.size(dim=0)), device=device)
-            for i in range(labels.size(dim=0)):
-                labels_mask = labels[i] >= 0
-                labels_length[i] = len(labels[i].masked_select(labels_mask))
-            labels_length = labels_length.to(torch.int)
-
             """
-            minimum ASD loss
-            """
-            # mwer = MWERLoss(vocab_size=34, subsampling_factor=1, reduction="mean")
-            # masd_loss = mwer(emissions=log_probs, emissions_lengths=input_lengths, labels=labels,
-            #                  labels_length=labels_length)
-            # total_loss =  outputs["loss"] + (args.lambda_asd * masd_loss)
-            # total_loss =  (args.lambda_asd * outputs["loss"]) + masd_loss  # mwer4
-            # total_loss = masd_loss
-
-            # asd_loss = sampled_multi_expected_ASD_ver3(label_str, outputs["logits"], input_lengths,
-            #                                             metric_model, metric_tokenizer, processor)
-            # total_loss = outputs["loss"] + (args.lambda_asd * asd_loss)
-            # total_loss = asd_loss
-            # sys.exit()
-
-            """
-            nbest with asd loss
-            """
-            # nbest_loss = compute_nbest_asd(label_str, outputs["logits"], input_lengths, metric_model, metric_tokenizer)
-            # # total_loss = ((1 - args.lambda_asd) * outputs["loss"]) + (args.lambda_asd * nbest_loss)
-            # total_loss = nbest_loss
-            # print("total loss:", total_loss)
-            # sys.exit()
-
-            """
-            MWER loss with CE
+            MASD Loss
             """
             candidate_paths_num = 3
             sampling_method = "beam_search"
             reduction = "mean"
-            eos_id = 33
-            masd_loss = Seq2seqMASDLoss(sampling_method, candidate_paths_num, reduction, eos_id)
-            nbest_log_distribution, nlog_probs = masd_loss.get_logits_for_decoding(logits, input_lengths)
+            masd_loss = Seq2seqMASDLoss(sampling_method, candidate_paths_num, reduction)
+            nbest_log_distribution, nbest_pred = masd_loss.get_logits_for_decoding(logits, input_lengths)
 
-            # getting the hypothesis
+            # getting the hypotheses
             hyp_list = []
-            for i in range(nlog_probs.size()[0]):
-                hyp_logits = nlog_probs[i].to(torch.float32)
-                pred_logits = self._gather_and_numpify(hyp_logits, "eval_preds")
-                hyp_list.append(processor.batch_decode(pred_logits).text)
+            for i in range(nbest_pred.size()[0]):
+                hyp_text = processor_woLM.batch_decode(nbest_pred[i])
+                hyp_list.append(hyp_text)
+            print("hyp_list")
 
-            loss = masd_loss(nbest_log_distribution, label_str, hyp_list, metric_model, metric_tokenizer)
-            print("masd loss:", loss)
+            asd_loss = masd_loss(nbest_log_distribution, label_str, hyp_list, metric_model, metric_tokenizer)
 
-            total_loss = (args.lambda_asd * outputs["loss"]) + loss
+            total_loss = (outputs["loss"] * args.lambda_asd) + ((1 - args.lambda_asd) * asd_loss)
 
             return (total_loss, outputs) if return_outputs else total_loss
 

@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # or "0,1" for multiple GPUs
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"  # or "0,1" for multiple GPUs
 
 import collections
 if not hasattr(collections, "Container"):
@@ -26,9 +26,10 @@ from typing import Any, Dict, List, Optional, Union
 import wandb
 import argparse
 # import types
-from customCTCwithASD import *
+from customCTCwithASD_v2 import *
 import sys
 import time
+from dtw import *
 
 
 # https://huggingface.co/transformers/main_classes/logging.html
@@ -41,6 +42,38 @@ import time
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print("DEVICE:", device)
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+
+
+def compute_asd_score(model=None, tokenizer=None, reference=None, hypothesis=None):
+        asd_score = 0
+        num_ref_hyp_pairs = 0
+        for ref_text, hyp_text in zip(reference, hypothesis):
+            ref_text = re.sub(r"\s+", " ", ref_text.replace("[UNK]", ""))  # removes the [UNK] token in the reference text, observed during training
+            hyp_text = re.sub(r"\s+", " ", hyp_text.replace("[UNK]", ""))
+            tokenized_ref = tokenizer(ref_text.lower(), padding=True, truncation=True, max_length=512, return_tensors="pt")
+            tokenized_hyp = tokenizer(hyp_text.lower(), padding=True, truncation=True, max_length=512, return_tensors="pt")
+            with torch.no_grad():
+                model_output_ref = model(**tokenized_ref, output_hidden_states=True)
+                model_output_hyp = model(**tokenized_hyp, output_hidden_states=True)
+            hidden_states_ref = model_output_ref.hidden_states
+            hidden_states_hyp = model_output_hyp.hidden_states
+            all_layers_reference = [hidden_states_ref[1].squeeze(), hidden_states_ref[2].squeeze(), hidden_states_ref[3].squeeze(), hidden_states_ref[4].squeeze(),
+                                    hidden_states_ref[5].squeeze(), hidden_states_ref[6].squeeze(), hidden_states_ref[7].squeeze(), hidden_states_ref[8].squeeze(),
+                                    hidden_states_ref[9].squeeze(), hidden_states_ref[10].squeeze(), hidden_states_ref[11].squeeze(), hidden_states_ref[12].squeeze()]
+            all_layers_hypothesis = [hidden_states_hyp[1].squeeze(), hidden_states_hyp[2].squeeze(), hidden_states_hyp[3].squeeze(), hidden_states_hyp[4].squeeze(),
+                                     hidden_states_hyp[5].squeeze(), hidden_states_hyp[6].squeeze(), hidden_states_hyp[7].squeeze(), hidden_states_hyp[8].squeeze(),
+                                     hidden_states_hyp[9].squeeze(), hidden_states_hyp[10].squeeze(), hidden_states_hyp[11].squeeze(), hidden_states_hyp[12].squeeze()]
+            output_mean_reference = torch.stack(all_layers_reference).mean(dim=0)
+            output_mean_hypothesis = torch.stack(all_layers_hypothesis).mean(dim=0)
+            alignment = dtw(output_mean_hypothesis, output_mean_reference, dist_method=distance.cosine, keep_internals=True)
+            num_tokens = len(output_mean_reference)
+            # min_global_distance_norm = (alignment.distance / num_tokens)
+            asd_score += (alignment.distance / num_tokens)
+            num_ref_hyp_pairs += 1
+        # return min_global_distance_norm
+        return asd_score / num_ref_hyp_pairs
 
 
 chars_to_ignore_regex = '[\,\?\.\!\-\;\:\"\*]'
@@ -65,7 +98,7 @@ def show_random_elements(dataset, num_examples=10):
 def prepare_dataset(batch):
     audio = batch["audio"]
     # batched output is "un-batched" to ensure mapping is correct
-    batch["input_values"] = processor(audio["array"], sampling_rate=audio["sampling_rate"]).input_values[0]
+    batch["input_values"] = processor(audio["array"], sampling_rate=audio["sampling_rate"], return_tensors="pt").input_values[0]
     with processor.as_target_processor():
         batch["labels"] = processor(batch["text"]).input_ids
     return batch
@@ -135,6 +168,18 @@ def load_dataset_from_files(data_dir_list:list[str], csv_export_dir:str, split_r
 # ARGUMENTS & INTIALIZATIONS
 # ---------------------------------------------------
 
+# parser=argparse.ArgumentParser()
+# parser.add_argument("--original_model",         type=str)
+# parser.add_argument("--fine_tuned_model_ver",   type=str)
+# parser.add_argument("--export_model_dir",       type=str)
+# parser.add_argument("--num_train_epochs",       type=int)
+# parser.add_argument("--learning_rate",          type=float)
+# parser.add_argument("--lambda_asd",             type=float)
+# # parser.add_argument("--lambda_ctc",             type=float)
+# parser.add_argument("--use_asd_metric",         type=int)
+# parser.add_argument("--wandb_name",             type=str)
+# parser.add_argument("--export_log",             type=str)
+
 parser=argparse.ArgumentParser()
 parser.add_argument("--original_model",         type=str)
 parser.add_argument("--fine_tuned_model_ver",   type=str)
@@ -142,11 +187,16 @@ parser.add_argument("--export_model_dir",       type=str)
 parser.add_argument("--num_train_epochs",       type=int)
 parser.add_argument("--learning_rate",          type=float)
 parser.add_argument("--lambda_asd",             type=float)
-# parser.add_argument("--lambda_ctc",             type=float)
 parser.add_argument("--use_asd_metric",         type=int)
+parser.add_argument("--num_paths",              type=int)
+parser.add_argument("--normalized_score",       type=int)
 parser.add_argument("--wandb_name",             type=str)
-parser.add_argument("--export_log",             type=str)
+# parser.add_argument("--train_data",             type=str)
+parser.add_argument("--from_checkpoint",        type=int)
+parser.add_argument("--checkpoint_path",        type=str)
+
 args = parser.parse_args()
+
 
 # WANDB login / initialization
 wandb.init(project="fine-tuning-wav2vec2-NO_customLoss", entity="janinerugayan", name=args.wandb_name)
@@ -160,28 +210,30 @@ wandb.init(project="fine-tuning-wav2vec2-NO_customLoss", entity="janinerugayan",
 # LOAD PRETRAINED MODEL
 # ---------------------------------------------------
 
-print("Loading pretrained model " + args.original_model)
+# print("Loading pretrained model " + args.original_model)
 
-model_name = args.original_model
+# model_name = args.original_model
 
-processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
-processor_woLM = Wav2Vec2Processor.from_pretrained(model_name)
+# processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
+# processor_woLM = Wav2Vec2Processor.from_pretrained(model_name)
 
-model = Wav2Vec2ForCTC.from_pretrained(
-    model_name,
-    ctc_loss_reduction="mean",
-    pad_token_id=processor.tokenizer.pad_token_id,
-)
-model = model.to(device)
+# model = Wav2Vec2ForCTC.from_pretrained(
+#     model_name,
+#     ctc_loss_reduction="mean",
+#     pad_token_id=processor.tokenizer.pad_token_id,
+# )
+# model = model.to(device)
 
 
 # NEED TO DEFINE THE PROCESSOR IF TRAINING FROM SCRATCH!!!
 
-# model = Wav2Vec2ForCTC.from_pretrained(
-#     "facebook/wav2vec2-base",
-#     ctc_loss_reduction="mean",
-#     pad_token_id=processor.tokenizer.pad_token_id,
-# )
+processor = Wav2Vec2Processor.from_pretrained("NbAiLab/nb-wav2vec2-300m-bokmaal")
+
+model = Wav2Vec2ForCTC.from_pretrained(
+    "KBLab/wav2vec2-large-voxrex",
+    ctc_loss_reduction="mean",
+    pad_token_id=processor.tokenizer.pad_token_id,
+)
 
 # feature extraction does not need further fine-tuning
 model.freeze_feature_encoder()
@@ -205,7 +257,7 @@ data_dir_list = ["../../datasets/NordTrans_TUL/train_small/Stortinget/",
 
 # data_dir_list = ["../../datasets/NordTrans_TUL/train_small/Rundkast/"]
 
-csv_export_dir = "../../model_ckpts/" + args.fine_tuned_model_ver + "/runs/"
+csv_export_dir = "./model_ckpts/" + args.fine_tuned_model_ver + "/runs/"
 
 raw_dataset, dataset = load_dataset_from_files(data_dir_list, csv_export_dir, split_ratio=0.1, csv_export=True)
 
@@ -244,8 +296,8 @@ class DataCollatorCTCWithPadding:
             7.5 (Volta).
     """
 
-    # processor: Wav2Vec2Processor
-    processor: Wav2Vec2ProcessorWithLM
+    processor: Wav2Vec2Processor
+    # processor: Wav2Vec2ProcessorWithLM
     padding: Union[bool, str] = True  # original: True
     max_length: Optional[int] = None
     max_length_labels: Optional[int] = None
@@ -285,7 +337,61 @@ class DataCollatorCTCWithPadding:
 data_collator = DataCollatorCTCWithPadding(processor=processor, padding=True)
 
 
-repo_local_dir = "../../model_ckpts/" + args.fine_tuned_model_ver + "/"
+# # The bare Bert Model transformer outputting raw hidden-states without any specific head on top.
+# metric_modelname = 'ltg/norbert2'  # changed to latest version of NorBERT (20-Mar-2023)
+# metric_model = BertModel.from_pretrained(metric_modelname)
+# metric_tokenizer = AutoTokenizer.from_pretrained(metric_modelname)
+
+# # multi-lingual LM
+# # metric_modelname = "bert-base-multilingual-cased"
+# # metric_model_multi = BertModel.from_pretrained(metric_modelname)
+# # metric_tokenizer_multi = AutoTokenizer.from_pretrained(metric_modelname)
+
+# asd_metric = load_metric("asd_metric.py")
+# wer_metric = load_metric("wer")
+
+# def compute_metrics(pred):
+#     pred_logits = pred.predictions
+#     pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
+#     pred_str = processor.batch_decode(pred_logits)
+#     label_str = processor_woLM.batch_decode(pred.label_ids, group_tokens=False)  # we do not want to group tokens when computing the metrics
+#     wer = wer_metric.compute(predictions=pred_str.text, references=label_str) # worked in fine-tuning versions 1 to 14 (wer metric)
+#     # ADD ASD HERE!
+#     asd = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=label_str, hypothesis=pred_str.text)
+#     # asd_multi = asd_metric.compute(model=metric_model_multi, tokenizer=metric_tokenizer_multi, reference=label_str, hypothesis=pred_str.text)
+
+#     return {"wer": wer, "asd": asd}
+
+
+# The bare Bert Model transformer outputting raw hidden-states without any specific head on top.
+metric_modelname = 'ltg/norbert2'  # changed to latest version of NorBERT (20-Mar-2023)
+metric_model = BertModel.from_pretrained(metric_modelname)
+metric_tokenizer = AutoTokenizer.from_pretrained(metric_modelname)
+
+# COMPUTE METRICS FOR EVA[[L
+wer_metric = load_metric("wer")
+def compute_metrics(pred):
+    pred_logits = pred.predictions
+    pred_ids = np.argmax(pred_logits, axis=-1)
+
+    pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
+
+    pred_str = processor.batch_decode(pred_ids)
+    # we do not want to group tokens when computing the metrics
+    label_str = processor.batch_decode(pred.label_ids, group_tokens=False)
+
+    wer = wer_metric.compute(predictions=pred_str, references=label_str)
+    asd = compute_asd_score(model=metric_model, tokenizer=metric_tokenizer, reference=label_str, hypothesis=pred_str)
+
+    return {"wer": wer, "asd": asd}
+
+
+
+
+print("Available cuda devices:", torch.cuda.device_count())
+
+
+repo_local_dir = "./model_ckpts/" + args.fine_tuned_model_ver + "/"
 # training arguments
 training_args = TrainingArguments(
   output_dir=repo_local_dir,
@@ -316,32 +422,8 @@ training_args = TrainingArguments(
   report_to="wandb"
 )
 
-# The bare Bert Model transformer outputting raw hidden-states without any specific head on top.
-metric_modelname = 'ltg/norbert2'  # changed to latest version of NorBERT (20-Mar-2023)
-metric_model = BertModel.from_pretrained(metric_modelname)
-metric_tokenizer = AutoTokenizer.from_pretrained(metric_modelname)
 
-# multi-lingual LM
-# metric_modelname = "bert-base-multilingual-cased"
-# metric_model_multi = BertModel.from_pretrained(metric_modelname)
-# metric_tokenizer_multi = AutoTokenizer.from_pretrained(metric_modelname)
 
-asd_metric = load_metric("asd_metric.py")
-wer_metric = load_metric("wer")
-
-def compute_metrics(pred):
-    pred_logits = pred.predictions
-    pred.label_ids[pred.label_ids == -100] = processor.tokenizer.pad_token_id
-    pred_str = processor.batch_decode(pred_logits)
-    label_str = processor_woLM.batch_decode(pred.label_ids, group_tokens=False)  # we do not want to group tokens when computing the metrics
-    wer = wer_metric.compute(predictions=pred_str.text, references=label_str) # worked in fine-tuning versions 1 to 14 (wer metric)
-    # ADD ASD HERE!
-    asd = asd_metric.compute(model=metric_model, tokenizer=metric_tokenizer, reference=label_str, hypothesis=pred_str.text)
-    # asd_multi = asd_metric.compute(model=metric_model_multi, tokenizer=metric_tokenizer_multi, reference=label_str, hypothesis=pred_str.text)
-
-    return {"wer": wer, "asd": asd}
-
-print("Available cuda devices:", torch.cuda.device_count())
 
 if args.use_asd_metric == 1:
     print("Setting up CUSTOM Trainer")
@@ -360,77 +442,36 @@ if args.use_asd_metric == 1:
             outputs = model(**inputs)
             logits = outputs["logits"]
 
-            attention_mask = inputs["attention_mask"]
+            attention_mask = torch.ones_like(inputs["input_values"], dtype=torch.long)
             input_lengths = model._get_feat_extract_output_lengths(attention_mask.sum(-1)).to(torch.long)
 
-            # output_logits = outputs["logits"].to(torch.float32)
-            # pred_logits = self._gather_and_numpify(output_logits.detach(), "eval_preds")
-            # pred_str = processor.batch_decode(pred_logits)
             labels = inputs["labels"]
-            label_str = processor_woLM.batch_decode(labels, group_tokens=False)  # we do not want to group tokens when computing the metrics
-
-            # labels = inputs["labels"]
-            # labels_length = torch.zeros((labels.size(dim=0)), device=device)
-            # for i in range(labels.size(dim=0)):
-            #     labels_mask = labels[i] >= 0
-            #     labels_length[i] = len(labels[i].masked_select(labels_mask))
-            # labels_length = labels_length.to(torch.int)
-
-            """
-            minimum ASD loss
-            """
-            # mwer = MWERLoss(vocab_size=34, subsampling_factor=1, reduction="mean")
-            # masd_loss = mwer(emissions=log_probs, emissions_lengths=input_lengths, labels=labels,
-            #                  labels_length=labels_length)
-            # total_loss =  outputs["loss"] + masd_loss
-            # total_loss = masd_loss
-            # asd_loss = sampled_multi_expected_ASD_ver3(label_str, outputs["logits"], input_lengths,
-            #                                            metric_model, metric_tokenizer, processor)
-            # total_loss = (args.lambda_asd * outputs["loss"]) + asd_loss
-            # total_loss = asd_loss
-            # sys.exit()
-
-            """
-            nbest with asd loss
-            """
-            # nbest_loss = compute_nbest_asd(label_str, outputs["logits"], input_lengths, metric_model, metric_tokenizer)
-            # # total_loss = ((1 - args.lambda_asd) * outputs["loss"]) + (args.lambda_asd * nbest_loss)
-            # total_loss = nbest_loss
-            # print("total loss:", total_loss)
-            # sys.exit()
-            # nbest_loss = compute_CTCloss_nbest(label_str, outputs["logits"], input_lengths, metric_model, metric_tokenizer)
-            # print("nbest_loss:", nbest_loss)
-            # total_loss = nbest_loss
+            label_str = processor.batch_decode(labels, group_tokens=False)  # we do not want to group tokens when computing the metrics
+            print(label_str)
 
             """
             MASD Loss
             """
-            candidate_paths_num = 3
-            # candidate_paths_num = 10
-            sampling_method = "beam_search"
-            reduction = "mean"
-            masd_loss = Seq2seqMASDLoss(sampling_method, candidate_paths_num, reduction)
-            # nbest_log_distribution, nlog_probs, nbest_pred = masd_loss.get_logits_for_decoding(logits, input_lengths)
+            masd_loss = Seq2seqMASDLoss(sampling_method = "beam_search",
+                                        candidate_paths_num = args.num_paths,
+                                        reduction = "mean",
+                                        normalized_score = args.normalized_score)
             nbest_log_distribution, nbest_pred = masd_loss.get_logits_for_decoding(logits, input_lengths)
 
             # getting the hypotheses
             hyp_list = []
-            # for i in range(nlog_probs.size()[0]):
-                # pred_logits = self._gather_and_numpify(nlog_probs[i].to(torch.float32).detach(), "eval_preds")
-                # hyp_list.append(processor.batch_decode(pred_logits).text)
             for i in range(nbest_pred.size()[0]):
-                hyp_text = processor_woLM.batch_decode(nbest_pred[i])
+                hyp_text = processor.batch_decode(nbest_pred[i])
                 hyp_list.append(hyp_text)
+            print(hyp_list)
 
-            asd_loss = masd_loss(nbest_log_distribution, label_str, hyp_list, metric_model, metric_tokenizer)
-            # asd_loss = masd_loss(nbest_log_distribution, label_str, hyp_list, metric_model_multi, metric_tokenizer_multi)
-            # print("masd_loss:", asd_loss)
+            asd_loss = masd_loss(nbest_log_distribution,
+                                 label_str,
+                                 hyp_list,
+                                 metric_model,
+                                 metric_tokenizer)
 
-            total_loss = (outputs["loss"] * args.lambda_asd) + ((1 - args.lambda_asd) * asd_loss)
-            # total_loss = (outputs["loss"] * args.lambda_asd) + asd_loss
-            # total_loss = outputs["loss"] + (asd_loss * args.lambda_asd)
-            # print("total_loss:", total_loss)
-            # sys.exit()
+            total_loss = (asd_loss * args.lambda_asd) + ((1 - args.lambda_asd) * outputs["loss"])
 
             return (total_loss, outputs) if return_outputs else total_loss
 
@@ -461,17 +502,19 @@ else:
 
 
 
-# ---------------------------------------------------
-# TRAINING
-# ---------------------------------------------------
+print("===== MODEL TRAINING =====")
 
 finetuned_model_dir = args.export_model_dir
-log_dir = "../../model_ckpts/" + args.fine_tuned_model_ver + "/runs/"
+log_dir = "./model_ckpts/" + args.fine_tuned_model_ver + "/runs/"
 
 torch.cuda.empty_cache()
-print("Training starts")
-trainer.train()
-# trainer.train("../../model_ckpts/fine-tuning_wav2vec2_v17/checkpoint-15000")
+
+# TRAINING OF MODEL
+if args.from_checkpoint == 0:
+    trainer.train()
+elif args.from_checkpoint == 1:
+    print("continuing training from checkpoint")
+    trainer.train(args.checkpoint_path)
 
 log_history_fn = os.path.join(log_dir, "log_history.txt")
 with open(log_history_fn, "w") as f:
