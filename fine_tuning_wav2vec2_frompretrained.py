@@ -1,5 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"  # or "0,1" for multiple GPUs
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"  # or "0,1" for multiple GPUs
 
 import collections
 if not hasattr(collections, "Container"):
@@ -144,7 +144,7 @@ def load_dataset_from_files(data_dir_list:list[str], csv_export_dir:str, split_r
     raw_dataset = Dataset.from_pandas(full_dataset_df)
     raw_dataset = raw_dataset.map(remove_special_characters)
     # split dataset
-    raw_dataset = raw_dataset.train_test_split(test_size=split_ratio)
+    raw_dataset = raw_dataset.train_test_split(test_size=split_ratio, seed=42)
     # save copy of dataset
     if csv_export is True:
         df_train = pd.DataFrame(raw_dataset["train"])
@@ -194,6 +194,7 @@ parser.add_argument("--wandb_name",             type=str)
 # parser.add_argument("--train_data",             type=str)
 parser.add_argument("--from_checkpoint",        type=int)
 parser.add_argument("--checkpoint_path",        type=str)
+parser.add_argument("--training_data",          type=str)
 
 args = parser.parse_args()
 
@@ -245,24 +246,40 @@ model.freeze_feature_encoder()
 # LOAD DATASET FROM CSV FILES
 # ---------------------------------------------------
 
-print("Loading dataset direct from data dir to pandas dataframe")
+if args.training_data == "load_csv":
+    print("Loading dataset from CSV files")
+    dataset = load_dataset("csv", data_files={"train": "./dataset/train_set.csv",
+                                              "dev": "./dataset/dev_set.csv"})
+    # loading audio
+    dataset = dataset.cast_column("path", Audio())
+    dataset = dataset.rename_column("path", "audio")
+    dataset = dataset.cast_column("audio", Audio(sampling_rate=16_000))
+    # preprocess dataset
+    dataset = dataset.map(prepare_dataset,
+                          remove_columns=dataset.column_names["train"],
+                          num_proc=4)
+    train_dataset = dataset["train"]
+    test_dataset = dataset["dev"]
+else:
+    print("Loading dataset direct from data dir to pandas dataframe")
 
-# data_dir_list = ["../../datasets/NordTrans_TUL/train/Stortinget/",
-#                  "../../datasets/NordTrans_TUL/train/NRK/",
-#                  "../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25per_30secmax/"]
+    # data_dir_list = ["../../datasets/NordTrans_TUL/train/Stortinget/",
+    #                  "../../datasets/NordTrans_TUL/train/NRK/",
+    #                  "../../datasets/NordTrans_TUL/train/Rundkast_cuts_random25per_30secmax/"]
 
-data_dir_list = ["../../datasets/NordTrans_TUL/train_small/Stortinget/",
-                 "../../datasets/NordTrans_TUL/train_small/NRK/",
-                 "../../datasets/NordTrans_TUL/train_small/Rundkast/"]
+    data_dir_list = ["../../datasets/NordTrans_TUL/train_small/Stortinget/",
+                    "../../datasets/NordTrans_TUL/train_small/NRK/",
+                    "../../datasets/NordTrans_TUL/train_small/Rundkast/"]
 
-# data_dir_list = ["../../datasets/NordTrans_TUL/train_small/Rundkast/"]
+    # data_dir_list = ["../../datasets/NordTrans_TUL/train_small/Rundkast/"]
 
-csv_export_dir = "./model_ckpts/" + args.fine_tuned_model_ver + "/runs/"
+    csv_export_dir = "./model_ckpts/" + args.fine_tuned_model_ver + "/runs/"
+    raw_dataset, dataset = load_dataset_from_files(data_dir_list, csv_export_dir, split_ratio=0.1, csv_export=True)
+    train_dataset = dataset["train"]
+    test_dataset = dataset["test"]
 
-raw_dataset, dataset = load_dataset_from_files(data_dir_list, csv_export_dir, split_ratio=0.1, csv_export=True)
-
-print(raw_dataset)
 print(dataset)
+
 
 
 
@@ -447,7 +464,6 @@ if args.use_asd_metric == 1:
 
             labels = inputs["labels"]
             label_str = processor.batch_decode(labels, group_tokens=False)  # we do not want to group tokens when computing the metrics
-            print(label_str)
 
             """
             MASD Loss
@@ -463,7 +479,6 @@ if args.use_asd_metric == 1:
             for i in range(nbest_pred.size()[0]):
                 hyp_text = processor.batch_decode(nbest_pred[i])
                 hyp_list.append(hyp_text)
-            print(hyp_list)
 
             asd_loss = masd_loss(nbest_log_distribution,
                                  label_str,
@@ -481,8 +496,8 @@ if args.use_asd_metric == 1:
         data_collator=data_collator,
         args=training_args,
         compute_metrics=compute_metrics,
-        train_dataset=dataset["train"],
-        eval_dataset=dataset["test"],
+        train_dataset=train_dataset,
+        eval_dataset=test_dataset,
         tokenizer=processor.feature_extractor,
     )
 
@@ -494,8 +509,8 @@ else:
         data_collator=data_collator,
         args=training_args,
         compute_metrics=compute_metrics,
-        train_dataset=dataset["train"],
-        eval_dataset=dataset["test"],
+        train_dataset=train_dataset,
+        eval_dataset=test_dataset,
         tokenizer=processor.feature_extractor,
     )
 

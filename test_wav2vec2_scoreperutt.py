@@ -1,3 +1,6 @@
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # or "0,1" for multiple GPUs
+
 import transformers
 from transformers import Wav2Vec2ForCTC, Wav2Vec2ProcessorWithLM, Wav2Vec2Processor, Wav2Vec2ProcessorWithLM
 from transformers import AutoTokenizer, BertModel
@@ -215,6 +218,24 @@ def get_transcriptions(batch):
     batch["ref_str"] = reference_text
     return batch
 
+
+def get_transcriptions_woLM(batch):
+    model.to("cuda")
+    audiofile = batch["path"]
+    reference_text = batch["text"]
+    audio, rate = librosa.load(audiofile, sr=16000)
+    input_values = processor(audio,
+                            sampling_rate=rate,
+                            return_tensors="pt"
+                            ).input_values.to("cuda")
+    with torch.no_grad():
+        logits = model(input_values).logits
+    pred_ids = torch.argmax(logits, dim=-1)
+    batch["asr_str"] = processor.batch_decode(pred_ids)[0]
+    batch["ref_str"] = reference_text
+    return batch
+
+
 def get_asd_score(model, tokenizer, ref, hyp):
     tokenized_ref = tokenizer(ref, padding=True, truncation=True, max_length=512, return_tensors="pt")
     tokenized_hyp = tokenizer(hyp, padding=True, truncation=True, max_length=512, return_tensors="pt")
@@ -254,6 +275,7 @@ parser.add_argument("--fine_tuned_model",   type=str)
 parser.add_argument("--log_file_name",      type=str)
 parser.add_argument("--log_dir",            type=str)
 parser.add_argument("--get_orig_model_results", type=int)
+parser.add_argument("--withLM",             type=int)
 args = parser.parse_args()
 
 model_name = args.original_model
@@ -300,22 +322,33 @@ metric_tokenizer = AutoTokenizer.from_pretrained(metric_modelname)
 
 
 with open(log_file, "a") as f:
+    f.write("Model Tested: {}\n".format(args.fine_tuned_model))
     f.write("Test Date: {}\n".format(date_today))
+
 
 
 if args.get_orig_model_results == 1:
 
     print("Original model testing")
     torch.cuda.empty_cache()
-    processor = Wav2Vec2ProcessorWithLM.from_pretrained(model_name)
-    model = Wav2Vec2ForCTC.from_pretrained(model_name)
-
-    print("RUNDKAST - transcribing with original model")
-    Rundkast_transcriptions = dataset_rundkast.map(get_transcriptions)
-    print("NB TALE - transcribing with original model")
-    NBTale_transcriptions = dataset_nbtale.map(get_transcriptions)
-    print("STORTINGET - transcribing with original model")
-    Stortinget_transcriptions = dataset_stortinget.map(get_transcriptions)
+    if args.withLM == 1:
+        processor = Wav2Vec2ProcessorWithLM.from_pretrained(args.original_model)
+        model = Wav2Vec2ForCTC.from_pretrained(args.original_model)
+        print("RUNDKAST - transcribing with original model")
+        Rundkast_transcriptions = dataset_rundkast.map(get_transcriptions)
+        print("NB TALE - transcribing with original model")
+        NBTale_transcriptions = dataset_nbtale.map(get_transcriptions)
+        print("STORTINGET - transcribing with original model")
+        Stortinget_transcriptions = dataset_stortinget.map(get_transcriptions)
+    else:
+        processor = Wav2Vec2Processor.from_pretrained(args.original_model)
+        model = Wav2Vec2ForCTC.from_pretrained(args.original_model)
+        print("RUNDKAST - transcribing with original model")
+        Rundkast_transcriptions = dataset_rundkast.map(get_transcriptions_woLM)
+        print("NB TALE - transcribing with original model")
+        NBTale_transcriptions = dataset_nbtale.map(get_transcriptions_woLM)
+        print("STORTINGET - transcribing with original model")
+        Stortinget_transcriptions = dataset_stortinget.map(get_transcriptions_woLM)
 
     print("RUNDKAST - scoring")
     # Rundkast_transcriptions = dataset_rundkast.map(get_transcriptions)
@@ -328,6 +361,7 @@ if args.get_orig_model_results == 1:
     print("Test Score (original) ASD: {:.3f}".format(asd_score_mean))
     print("Test Score (original) CER: {:.3f}".format(cer_score_mean))
     with open(log_file, "a") as f:
+        f.write("Original model: {}\n".format(args.original_model))
         f.write("Rundkast Test Score (original) WER: {:.3f}\n".format(wer_score_mean))
         f.write("Rundkast Test Score (original) ASD: {:.3f}\n".format(asd_score_mean))
         f.write("Rundkast Test Score (original) CER: {:.3f}\n".format(cer_score_mean))
@@ -367,15 +401,24 @@ if args.get_orig_model_results == 1:
 
 print("Fine-tuned model testing")
 torch.cuda.empty_cache()
-processor = Wav2Vec2ProcessorWithLM.from_pretrained(finetuned_model_dir)
-model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
-
-print("RUNDKAST - transcribing with finetuned model")
-Rundkast_transcriptions = dataset_rundkast.map(get_transcriptions)
-print("NB TALE - transcribing with finetuned model")
-NBTale_transcriptions = dataset_nbtale.map(get_transcriptions)
-print("STORTINGET - transcribing with finetuned model")
-Stortinget_transcriptions = dataset_stortinget.map(get_transcriptions)
+if args.withLM == 1:
+    processor = Wav2Vec2ProcessorWithLM.from_pretrained(finetuned_model_dir)
+    model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
+    print("RUNDKAST - transcribing with finetuned model")
+    Rundkast_transcriptions = dataset_rundkast.map(get_transcriptions)
+    print("NB TALE - transcribing with finetuned model")
+    NBTale_transcriptions = dataset_nbtale.map(get_transcriptions)
+    print("STORTINGET - transcribing with finetuned model")
+    Stortinget_transcriptions = dataset_stortinget.map(get_transcriptions)
+else:
+    processor = Wav2Vec2Processor.from_pretrained(finetuned_model_dir)
+    model = Wav2Vec2ForCTC.from_pretrained(finetuned_model_dir)
+    print("RUNDKAST - transcribing with finetuned model")
+    Rundkast_transcriptions = dataset_rundkast.map(get_transcriptions_woLM)
+    print("NB TALE - transcribing with finetuned model")
+    NBTale_transcriptions = dataset_nbtale.map(get_transcriptions_woLM)
+    print("STORTINGET - transcribing with finetuned model")
+    Stortinget_transcriptions = dataset_stortinget.map(get_transcriptions_woLM)
 
 print("RUNDKAST - scoring")
 # Rundkast_transcriptions = dataset_rundkast.map(get_transcriptions)

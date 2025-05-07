@@ -144,6 +144,7 @@ parser.add_argument("--learning_rate",          type=float)
 parser.add_argument("--lambda_asd",             type=float)
 # parser.add_argument("--lambda_ctc",             type=float)
 parser.add_argument("--use_asd_metric",         type=int)
+parser.add_argument("--use_asd_scores",         type=int)
 parser.add_argument("--wandb_name",             type=str)
 parser.add_argument("--export_log",             type=str)
 args = parser.parse_args()
@@ -174,18 +175,7 @@ model = Wav2Vec2ForCTC.from_pretrained(
 )
 model = model.to(device)
 
-
-# NEED TO DEFINE THE PROCESSOR IF TRAINING FROM SCRATCH!!!
-
-# model = Wav2Vec2ForCTC.from_pretrained(
-#     "facebook/wav2vec2-base",
-#     ctc_loss_reduction="mean",
-#     pad_token_id=processor.tokenizer.pad_token_id,
-# )
-
-# feature extraction does not need further fine-tuning
 model.freeze_feature_encoder()
-
 # wandb.watch(model, log_freq=50)
 
 
@@ -405,6 +395,7 @@ if args.use_asd_metric == 1:
             """
             MASD Loss
             """
+            use_asd = args.use_asd_scores
             candidate_paths_num = 3
             # candidate_paths_num = 10
             sampling_method = "beam_search"
@@ -422,11 +413,11 @@ if args.use_asd_metric == 1:
                 hyp_text = processor_woLM.batch_decode(nbest_pred[i])
                 hyp_list.append(hyp_text)
 
-            asd_loss = masd_loss(nbest_log_distribution, label_str, hyp_list, metric_model, metric_tokenizer)
+            asd_loss = masd_loss(nbest_log_distribution, label_str, hyp_list, metric_model, metric_tokenizer, use_asd)
             # asd_loss = masd_loss(nbest_log_distribution, label_str, hyp_list, metric_model_multi, metric_tokenizer_multi)
             # print("masd_loss:", asd_loss)
 
-            total_loss = (outputs["loss"] * args.lambda_asd) + ((1 - args.lambda_asd) * asd_loss)
+            total_loss =  ((1 - args.lambda_asd) * outputs["loss"]) + (asd_loss * args.lambda_asd)
             # total_loss = (outputs["loss"] * args.lambda_asd) + asd_loss
             # total_loss = outputs["loss"] + (asd_loss * args.lambda_asd)
             # print("total_loss:", total_loss)

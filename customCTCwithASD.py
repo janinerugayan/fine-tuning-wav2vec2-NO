@@ -913,7 +913,7 @@ class Seq2seqMASDLoss(torch.nn.Module):
 
 
     def forward(
-        self, nbest_log_distribution: torch.Tensor, ref_list, hyp_list, metric_model, metric_tokenizer) -> torch.Tensor:
+        self, nbest_log_distribution: torch.Tensor, ref_list, hyp_list, metric_model, metric_tokenizer, use_asd) -> torch.Tensor:
         """
         Args:
             logit: logit (batch, maxlen_out, vocab_size)
@@ -927,8 +927,10 @@ class Seq2seqMASDLoss(torch.nn.Module):
         for hyp_group in hyp_list:
             path_scores = []
             for ref, hyp in zip(ref_list, hyp_group):
-                path_scores.append(compute_asd_score_single_utt(metric_model, metric_tokenizer, ref, hyp))
-                # path_scores.append(wer(ref, hyp))
+                if use_asd == 1:
+                    path_scores.append(compute_asd_score_single_utt(metric_model, metric_tokenizer, ref, hyp))
+                elif use_asd == 0:
+                    path_scores.append(wer(ref, hyp))
             asd_scores.append(path_scores)
 
         asd_scores_tensor = torch.tensor(asd_scores, device=device)
